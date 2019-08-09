@@ -57,3 +57,7 @@ gg_miss_upset(training)
 ```
 
 ![](data_prep_files/figure-gfm/unnamed-chunk-2-2.png)<!-- -->
+
+### LotFrontage
+
+LotFrontage referce to *Linear feet of street connected to property*

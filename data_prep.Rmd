@@ -18,7 +18,7 @@ testing <- read_csv("test.csv")
 
 
 ## Missing data
-I start by fixing the obvious missing values. There are few problematic variables, all related to Garage.  
+I start by fixing the obvious missing values. The only problematic variable seems to be year built for garage where the garace is missing. One way would be to replace NA with year built for the house itselfe.   
 ```{r}
 # Missing data according to data_description.txt file
 
@@ -27,12 +27,19 @@ training$MiscFeature[is.na(training$MiscFeature)] <- "none"
 training$Alley[is.na(training$Alley)] <- "no_alley"
 training$Fence[is.na(training$Fence)] <- "no_fence"
 training$FireplaceQu[is.na(training$FireplaceQu)] <- "no_fireplace"
-training$GarageType[is.na(training$GarageType)] <- "no_garage"
+
+#  Basement
 training$BsmtFinType2[is.na(training$BsmtFinType2)] <- "no_basement"
 training$BsmtFinType1[is.na(training$BsmtFinType1)] <- "no_basement"
 training$BsmtExposure[is.na(training$BsmtExposure)] <- "no_basement"
 training$BsmtQual[is.na(training$BsmtQual)] <- "no_basement"
 training$BsmtCond[is.na(training$BsmtCond)] <- "no_basement"
+
+# Garage
+training$GarageType[is.na(training$GarageType)] <- "no_garage"
+training$GarageFinish[is.na(training$GarageFinish)] <- "no_garage"
+training$GarageQual[is.na(training$GarageQual)] <- "no_garage"
+training$GarageCond[is.na(training$GarageCond)] <- "no_garage"
 
 
 df_missing <- map_df(training, function(x) mean(is.na(x))) %>%
@@ -63,6 +70,30 @@ Heatmap(house_missing,
 
 
 gg_miss_upset(training)
+
+
+```
+
+
+### LotFrontage
+LotFrontage referce to *Linear feet of street connected to property*. When compared to SalePrice there doesn't seems to be that much of a difference in sale price whether or not the LotFrontage is missing. It could be that the actual value is 0 but we dont' know for sure. So we can impute the missing values using KNN or Bagging and compare it to imputing the missing values with zero.  
+```{r}
+
+lot_miss <- training %>% 
+        mutate(LotFrontage_miss = ifelse(is.na(LotFrontage), "missing", "not_missing"))
+
+
+ggplot(lot_miss,
+       aes(x = LotFrontage_miss,
+           y = SalePrice)) + 
+        geom_violin()
+
+ggplot(lot_miss,
+       aes(x = LotFrontage_miss,
+           y = SalePrice)) + 
+        geom_boxplot()
+
+
 
 ```
 
