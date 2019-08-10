@@ -112,15 +112,19 @@ df_categorical <- bind_cols(df_lot, df_categorical) %>% select(-Id)
 df_categorical <- df_categorical %>% 
         gather("key", "value", 2:44) %>% 
         group_by(key, value) %>% 
-        summarise(missing = mean(is.na(LotFrontage)))
+        summarise(missing = mean(is.na(LotFrontage)),
+                  fjoldi = n()) %>% 
+        arrange(desc(missing))
 
+head(df_categorical, 10)
 
-ggplot(df_categorical,
-       aes(x = value,
-           y = missing,
-           fill = value)) +
-        geom_bar(stat = "identity") +
-        facet_wrap(~key)
+# ggplot(df_categorical,
+#        aes(x = value,
+#            y = missing,
+#            fill = value)) +
+#         geom_bar(stat = "identity") +
+#         facet_wrap(~key) + 
+#         theme(legend.position = "none")
 
 ```
 
