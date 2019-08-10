@@ -3,8 +3,9 @@ Untitled
 
 ## Missing data
 
-I start by fixing the obvious missing values. There are few problematic
-variables, all related to Garage.
+I start by fixing the obvious missing values. The only problematic
+variable seems to be year built for garage where the garace is missing.
+One way would be to replace NA with year built for the house itselfe.
 
 ``` r
 # Missing data according to data_description.txt file
@@ -14,12 +15,19 @@ training$MiscFeature[is.na(training$MiscFeature)] <- "none"
 training$Alley[is.na(training$Alley)] <- "no_alley"
 training$Fence[is.na(training$Fence)] <- "no_fence"
 training$FireplaceQu[is.na(training$FireplaceQu)] <- "no_fireplace"
-training$GarageType[is.na(training$GarageType)] <- "no_garage"
+
+#  Basement
 training$BsmtFinType2[is.na(training$BsmtFinType2)] <- "no_basement"
 training$BsmtFinType1[is.na(training$BsmtFinType1)] <- "no_basement"
 training$BsmtExposure[is.na(training$BsmtExposure)] <- "no_basement"
 training$BsmtQual[is.na(training$BsmtQual)] <- "no_basement"
 training$BsmtCond[is.na(training$BsmtCond)] <- "no_basement"
+
+# Garage
+training$GarageType[is.na(training$GarageType)] <- "no_garage"
+training$GarageFinish[is.na(training$GarageFinish)] <- "no_garage"
+training$GarageQual[is.na(training$GarageQual)] <- "no_garage"
+training$GarageCond[is.na(training$GarageCond)] <- "no_garage"
 
 
 df_missing <- map_df(training, function(x) mean(is.na(x))) %>%
@@ -60,4 +68,82 @@ gg_miss_upset(training)
 
 ### LotFrontage
 
-LotFrontage referce to *Linear feet of street connected to property*
+LotFrontage referce to *Linear feet of street connected to property*.
+When compared to SalePrice there doesn’t seems to be that much of a
+difference in sale price whether or not the LotFrontage is missing. It
+could be that the actual value is 0 but we dont’ know for sure. So we
+can impute the missing values using KNN or Bagging and compare it to
+imputing the missing values with zero.
+
+#### Numeric variables and missingness of LotFrontage
+
+No clear pattern.
+
+``` r
+df_numeric <- training %>% 
+        select_if(is.numeric) %>% 
+        mutate(LotFrontage_cat = ifelse(is.na(LotFrontage), "missing", "no_missing")) %>% 
+        select(-Id,- LotFrontage) %>% 
+        select(LotFrontage_cat, everything()) %>% 
+        gather("key", "value", 2:37)
+
+ggplot(df_numeric,
+       aes(x = LotFrontage_cat,
+           y = value,
+           col = LotFrontage_cat)) + 
+        geom_violin() +
+        facet_wrap(~key, ncol = 6, scales = "free_y")
+```
+
+    ## Warning: Removed 89 rows containing non-finite values (stat_ydensity).
+
+![](data_prep_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
+
+#### Categorical variables and connection to LotFrontage
+
+``` r
+df_categorical <- training %>% 
+        select_if(is.character)
+
+df_lot <- training %>% 
+        select(Id, LotFrontage)
+
+df_categorical <- bind_cols(df_lot, df_categorical) %>% select(-Id)
+
+df_categorical <- df_categorical %>% 
+        gather("key", "value", 2:44) %>% 
+        group_by(key, value) %>% 
+        summarise(missing = mean(is.na(LotFrontage)))
+
+
+ggplot(df_categorical,
+       aes(x = value,
+           y = missing,
+           fill = value)) +
+        geom_bar(stat = "identity") +
+        facet_wrap(~key)
+```
+
+![](data_prep_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+
+``` r
+lot_miss <- training %>% 
+        mutate(LotFrontage_miss = ifelse(is.na(LotFrontage), "missing", "not_missing"))
+
+
+ggplot(lot_miss,
+       aes(x = LotFrontage_miss,
+           y = SalePrice)) + 
+        geom_violin()
+```
+
+![](data_prep_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
+
+``` r
+ggplot(lot_miss,
+       aes(x = LotFrontage_miss,
+           y = SalePrice)) + 
+        geom_boxplot()
+```
+
+![](data_prep_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->

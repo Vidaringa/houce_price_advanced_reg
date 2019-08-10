@@ -77,6 +77,54 @@ gg_miss_upset(training)
 
 ### LotFrontage
 LotFrontage referce to *Linear feet of street connected to property*. When compared to SalePrice there doesn't seems to be that much of a difference in sale price whether or not the LotFrontage is missing. It could be that the actual value is 0 but we dont' know for sure. So we can impute the missing values using KNN or Bagging and compare it to imputing the missing values with zero.  
+
+#### Numeric variables and missingness of LotFrontage
+No clear pattern.  
+```{r}
+
+df_numeric <- training %>% 
+        select_if(is.numeric) %>% 
+        mutate(LotFrontage_cat = ifelse(is.na(LotFrontage), "missing", "no_missing")) %>% 
+        select(-Id,- LotFrontage) %>% 
+        select(LotFrontage_cat, everything()) %>% 
+        gather("key", "value", 2:37)
+
+ggplot(df_numeric,
+       aes(x = LotFrontage_cat,
+           y = value,
+           col = LotFrontage_cat)) + 
+        geom_violin() +
+        facet_wrap(~key, ncol = 6, scales = "free_y")
+
+```
+
+#### Categorical variables and connection to LotFrontage
+
+```{r}
+df_categorical <- training %>% 
+        select_if(is.character)
+
+df_lot <- training %>% 
+        select(Id, LotFrontage)
+
+df_categorical <- bind_cols(df_lot, df_categorical) %>% select(-Id)
+
+df_categorical <- df_categorical %>% 
+        gather("key", "value", 2:44) %>% 
+        group_by(key, value) %>% 
+        summarise(missing = mean(is.na(LotFrontage)))
+
+
+ggplot(df_categorical,
+       aes(x = value,
+           y = missing,
+           fill = value)) +
+        geom_bar(stat = "identity") +
+        facet_wrap(~key)
+
+```
+
+
 ```{r}
 
 lot_miss <- training %>% 
