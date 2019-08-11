@@ -113,37 +113,34 @@ df_categorical <- bind_cols(df_lot, df_categorical) %>% select(-Id)
 df_categorical <- df_categorical %>% 
         gather("key", "value", 2:44) %>% 
         group_by(key, value) %>% 
-        summarise(missing = mean(is.na(LotFrontage)))
+        summarise(missing = mean(is.na(LotFrontage)),
+                  fjoldi = n()) %>% 
+        arrange(desc(missing))
 
-
-ggplot(df_categorical,
-       aes(x = value,
-           y = missing,
-           fill = value)) +
-        geom_bar(stat = "identity") +
-        facet_wrap(~key)
+head(df_categorical, 10)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+    ## # A tibble: 10 x 4
+    ## # Groups:   key [8]
+    ##    key         value   missing fjoldi
+    ##    <chr>       <chr>     <dbl>  <int>
+    ##  1 Condition2  RRAe      1          1
+    ##  2 Condition2  RRAn      1          1
+    ##  3 Functional  Sev       1          1
+    ##  4 Heating     Floor     1          1
+    ##  5 MiscFeature Gar2      1          2
+    ##  6 RoofMatl    Metal     1          1
+    ##  7 RoofStyle   Shed      1          2
+    ##  8 Utilities   NoSeWa    1          1
+    ##  9 LandSlope   Sev       0.615     13
+    ## 10 RoofMatl    WdShake   0.6        5
 
 ``` r
-lot_miss <- training %>% 
-        mutate(LotFrontage_miss = ifelse(is.na(LotFrontage), "missing", "not_missing"))
-
-
-ggplot(lot_miss,
-       aes(x = LotFrontage_miss,
-           y = SalePrice)) + 
-        geom_violin()
+# ggplot(df_categorical,
+#        aes(x = value,
+#            y = missing,
+#            fill = value)) +
+#         geom_bar(stat = "identity") +
+#         facet_wrap(~key) + 
+#         theme(legend.position = "none")
 ```
-
-![](data_prep_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
-
-``` r
-ggplot(lot_miss,
-       aes(x = LotFrontage_miss,
-           y = SalePrice)) + 
-        geom_boxplot()
-```
-
-![](data_prep_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->

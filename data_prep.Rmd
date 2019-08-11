@@ -5,10 +5,18 @@ output: github_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)      # data wrangling
-library(naniar)         # missing values visualization
-library(visdat)         # missing values visualization
-library(ComplexHeatmap) # missing values visualization
+
+# Data analysis
+library(tidyverse)     
+
+# Modeling
+library(tidymodels)
+library(caret)
+
+# Visualization
+library(naniar)
+library(visdat)
+library(ComplexHeatmap)
 
 
 training <- read_csv("train.csv")
@@ -129,23 +137,39 @@ head(df_categorical, 10)
 ```
 
 
+### GarageYrBlt
+Problematic variable. It is numeric but contains NA's for properties with no garage. Could impute with the year the house was built. First I'll check if this variable is important or not using random forest.
 ```{r}
+# I have to change all character variables to factor. Got an error: Error in gower_work....
 
-lot_miss <- training %>% 
-        mutate(LotFrontage_miss = ifelse(is.na(LotFrontage), "missing", "not_missing"))
+train_no_garageyrblt <- training[!is.na(training$GarageYrBlt), ] %>% select(-Id) %>% 
+        mutate_if(is.character, as.factor) %>% 
+        janitor::clean_names()
+
+ames_rf_importance <- recipe(sale_price ~ ., data = train_no_garageyrblt) %>% 
+        step_knnimpute(all_predictors(), neighbors = 5) %>% 
+        prep(train_no_garageyrblt) %>% 
+        bake(train_no_garageyrblt)
+
+n_features <- length(setdiff(names(train_no_garageyrblt), "SalePrice"))
+
+# nafn á breytu byrjar á  tölustaf, laga það
 
 
-ggplot(lot_miss,
-       aes(x = LotFrontage_miss,
-           y = SalePrice)) + 
-        geom_violin()
 
-ggplot(lot_miss,
-       aes(x = LotFrontage_miss,
-           y = SalePrice)) + 
-        geom_boxplot()
+rf_model_importance <- ranger::ranger(sale_price ~ .,
+                                      data = ames_rf_importance,
+                                      mtry = floor(n_features / 3),
+                                      respect.unordered.factors = "order",
+                                      importance = "impurity")
 
+```
 
 
+### Recipe
+```{r}
+ames_recipe_knn <- recipe(SalePrice ~ ., data = training) %>% 
+        step_log(all_outcomes()) %>% 
+        step_knnimpute()
 ```
 
