@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "House Prices: Advanced Regression Techniques"
 output: github_document
 ---
 
@@ -21,6 +21,7 @@ library(ComplexHeatmap)
 
 training <- read_csv("train.csv")
 testing <- read_csv("test.csv")
+
 ```
 
 
@@ -151,10 +152,7 @@ ames_rf_importance <- recipe(sale_price ~ ., data = train_no_garageyrblt) %>%
         prep(train_no_garageyrblt) %>% 
         bake(train_no_garageyrblt)
 
-n_features <- length(setdiff(names(train_no_garageyrblt), "SalePrice"))
-
-# nafn á breytu byrjar á  tölustaf, laga það
-
+n_features <- length(setdiff(names(train_no_garageyrblt), "sale_price"))
 
 
 rf_model_importance <- ranger::ranger(sale_price ~ .,
@@ -163,13 +161,47 @@ rf_model_importance <- ranger::ranger(sale_price ~ .,
                                       respect.unordered.factors = "order",
                                       importance = "impurity")
 
+
 ```
+
+#### Is GarageYrBlt important?
+```{r}
+df_rf_importance <- as.data.frame(rf_model_importance$variable.importance) %>% 
+        rownames_to_column(var = "variable") %>% 
+        as_tibble()
+
+colnames(df_rf_importance) <- c("variable", "importance")
+df_rf_importance <- df_rf_importance %>% arrange(desc(importance))
+
+ggplot(df_rf_importance,
+       aes(x = fct_reorder(variable, -importance),
+           y = importance)) +
+        geom_bar(stat = "identity") + 
+        coord_flip()
+
+
+rank_garagyrb <- which(df_rf_importance$variable == "garage_yr_blt")
+yrblt_garageyrb <- mean(train_no_garageyrblt$year_built == train_no_garageyrblt$garage_yr_blt)
+
+```
+
+The year when the garage is built ranks number `r rank_garagyrb` of `r n_features` variables in the dataset. I could replace the garage_yr_blt with year_built. `r yrblt_garageyrb` of garages were built the same year as the house. So I'm not 100% sure if I should impute garage_yr_built with year_built.
+
+```{r}
+
+ggplot(train_no_garageyrblt,
+       aes(x = year_built,
+           y = garage_yr_blt)) + 
+        geom_point()
+
+```
+
 
 
 ### Recipe
 ```{r}
-ames_recipe_knn <- recipe(SalePrice ~ ., data = training) %>% 
-        step_log(all_outcomes()) %>% 
-        step_knnimpute()
+# ames_recipe_knn <- recipe(SalePrice ~ ., data = training) %>% 
+#         step_log(all_outcomes()) %>% 
+#         step_knnimpute()
 ```
 
