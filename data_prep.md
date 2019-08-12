@@ -144,3 +144,78 @@ head(df_categorical, 10)
 #         facet_wrap(~key) + 
 #         theme(legend.position = "none")
 ```
+
+### GarageYrBlt
+
+Problematic variable. It is numeric but contains NA’s for properties
+with no garage. Could impute with the year the house was built. First
+I’ll check if this variable is important or not using random
+forest.
+
+``` r
+# I have to change all character variables to factor. Got an error: Error in gower_work....
+
+train_no_garageyrblt <- training[!is.na(training$GarageYrBlt), ] %>% select(-Id) %>% 
+        mutate_if(is.character, as.factor) %>% 
+        janitor::clean_names()
+
+ames_rf_importance <- recipe(sale_price ~ ., data = train_no_garageyrblt) %>% 
+        step_knnimpute(all_predictors(), neighbors = 5) %>% 
+        prep(train_no_garageyrblt) %>% 
+        bake(train_no_garageyrblt)
+
+n_features <- length(setdiff(names(train_no_garageyrblt), "sale_price"))
+
+
+rf_model_importance <- ranger::ranger(sale_price ~ .,
+                                      data = ames_rf_importance,
+                                      mtry = floor(n_features / 3),
+                                      respect.unordered.factors = "order",
+                                      importance = "impurity")
+```
+
+#### Is GarageYrBlt important?
+
+``` r
+df_rf_importance <- as.data.frame(rf_model_importance$variable.importance) %>% 
+        rownames_to_column(var = "variable") %>% 
+        as_tibble()
+
+colnames(df_rf_importance) <- c("variable", "importance")
+df_rf_importance <- df_rf_importance %>% arrange(desc(importance))
+
+ggplot(df_rf_importance,
+       aes(x = fct_reorder(variable, -importance),
+           y = importance)) +
+        geom_bar(stat = "identity") + 
+        coord_flip()
+```
+
+![](data_prep_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
+
+``` r
+rank_garagyrb <- which(df_rf_importance$variable == "garage_yr_blt")
+yrblt_garageyrb <- mean(train_no_garageyrblt$year_built == train_no_garageyrblt$garage_yr_blt)
+```
+
+The year when the garage is built ranks number 20 of 79 variables in the
+dataset. I could replace the garage\_yr\_blt with year\_built. 0.7897027
+of garages were built the same year as the house. So I’m not 100% sure
+if I should impute garage\_yr\_built with year\_built.
+
+``` r
+ggplot(train_no_garageyrblt,
+       aes(x = year_built,
+           y = garage_yr_blt)) + 
+        geom_point()
+```
+
+![](data_prep_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
+
+### Recipe
+
+``` r
+# ames_recipe_knn <- recipe(SalePrice ~ ., data = training) %>% 
+#         step_log(all_outcomes()) %>% 
+#         step_knnimpute()
+```
