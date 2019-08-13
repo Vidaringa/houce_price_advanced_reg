@@ -1,4 +1,4 @@
-Untitled
+House Prices: Advanced Regression Techniques
 ================
 
 ## Missing data
@@ -10,24 +10,24 @@ One way would be to replace NA with year built for the house itselfe.
 ``` r
 # Missing data according to data_description.txt file
 
-training$PoolQC[is.na(training$PoolQC)] <- "no_pool"
-training$MiscFeature[is.na(training$MiscFeature)] <- "none"
-training$Alley[is.na(training$Alley)] <- "no_alley"
-training$Fence[is.na(training$Fence)] <- "no_fence"
-training$FireplaceQu[is.na(training$FireplaceQu)] <- "no_fireplace"
+training$pool_qc[is.na(training$pool_qc)] <- "no_pool"
+training$misc_feature[is.na(training$misc_feature)] <- "none"
+training$alley[is.na(training$alley)] <- "no_alley"
+training$fence[is.na(training$fence)] <- "no_fence"
+training$fireplace_qu[is.na(training$fireplace_qu)] <- "no_fireplace"
 
 #  Basement
-training$BsmtFinType2[is.na(training$BsmtFinType2)] <- "no_basement"
-training$BsmtFinType1[is.na(training$BsmtFinType1)] <- "no_basement"
-training$BsmtExposure[is.na(training$BsmtExposure)] <- "no_basement"
-training$BsmtQual[is.na(training$BsmtQual)] <- "no_basement"
-training$BsmtCond[is.na(training$BsmtCond)] <- "no_basement"
+training$bsmt_fin_type2[is.na(training$bsmt_fin_type2)] <- "no_basement"
+training$bsmt_fin_type1[is.na(training$bsmt_fin_type1)] <- "no_basement"
+training$bsmt_exposure[is.na(training$bsmt_exposure)] <- "no_basement"
+training$bsmt_qual[is.na(training$bsmt_qual)] <- "no_basement"
+training$bsmt_cond[is.na(training$bsmt_cond)] <- "no_basement"
 
 # Garage
-training$GarageType[is.na(training$GarageType)] <- "no_garage"
-training$GarageFinish[is.na(training$GarageFinish)] <- "no_garage"
-training$GarageQual[is.na(training$GarageQual)] <- "no_garage"
-training$GarageCond[is.na(training$GarageCond)] <- "no_garage"
+training$garage_type[is.na(training$garage_type)] <- "no_garage"
+training$garage_finish[is.na(training$garage_finish)] <- "no_garage"
+training$garage_qual[is.na(training$garage_qual)] <- "no_garage"
+training$garage_cond[is.na(training$garage_cond)] <- "no_garage"
 
 
 df_missing <- map_df(training, function(x) mean(is.na(x))) %>%
@@ -82,8 +82,8 @@ No clear pattern.
 ``` r
 df_numeric <- training %>% 
         select_if(is.numeric) %>% 
-        mutate(LotFrontage_cat = ifelse(is.na(LotFrontage), "missing", "no_missing")) %>% 
-        select(-Id,- LotFrontage) %>% 
+        mutate(LotFrontage_cat = ifelse(is.na(lot_frontage), "missing", "no_missing")) %>% 
+        select(-id,- lot_frontage) %>% 
         select(LotFrontage_cat, everything()) %>% 
         gather("key", "value", 2:37)
 
@@ -92,10 +92,9 @@ ggplot(df_numeric,
            y = value,
            col = LotFrontage_cat)) + 
         geom_violin() +
-        facet_wrap(~key, ncol = 6, scales = "free_y")
+        facet_wrap(~key, ncol = 6, scales = "free_y") + 
+        theme(legend.position = "bottom")
 ```
-
-    ## Warning: Removed 89 rows containing non-finite values (stat_ydensity).
 
 ![](data_prep_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
 
@@ -106,14 +105,14 @@ df_categorical <- training %>%
         select_if(is.character)
 
 df_lot <- training %>% 
-        select(Id, LotFrontage)
+        select(id, lot_frontage)
 
-df_categorical <- bind_cols(df_lot, df_categorical) %>% select(-Id)
+df_categorical_lot <- bind_cols(df_lot, df_categorical) %>% select(-id)
 
-df_categorical <- df_categorical %>% 
+df_categorical <- df_categorical_lot %>% 
         gather("key", "value", 2:44) %>% 
         group_by(key, value) %>% 
-        summarise(missing = mean(is.na(LotFrontage)),
+        summarise(missing = mean(is.na(lot_frontage)),
                   fjoldi = n()) %>% 
         arrange(desc(missing))
 
@@ -122,28 +121,18 @@ head(df_categorical, 10)
 
     ## # A tibble: 10 x 4
     ## # Groups:   key [8]
-    ##    key         value   missing fjoldi
-    ##    <chr>       <chr>     <dbl>  <int>
-    ##  1 Condition2  RRAe      1          1
-    ##  2 Condition2  RRAn      1          1
-    ##  3 Functional  Sev       1          1
-    ##  4 Heating     Floor     1          1
-    ##  5 MiscFeature Gar2      1          2
-    ##  6 RoofMatl    Metal     1          1
-    ##  7 RoofStyle   Shed      1          2
-    ##  8 Utilities   NoSeWa    1          1
-    ##  9 LandSlope   Sev       0.615     13
-    ## 10 RoofMatl    WdShake   0.6        5
-
-``` r
-# ggplot(df_categorical,
-#        aes(x = value,
-#            y = missing,
-#            fill = value)) +
-#         geom_bar(stat = "identity") +
-#         facet_wrap(~key) + 
-#         theme(legend.position = "none")
-```
+    ##    key          value   missing fjoldi
+    ##    <chr>        <chr>     <dbl>  <int>
+    ##  1 condition2   RRAe      1          1
+    ##  2 condition2   RRAn      1          1
+    ##  3 functional   Sev       1          1
+    ##  4 heating      Floor     1          1
+    ##  5 misc_feature Gar2      1          2
+    ##  6 roof_matl    Metal     1          1
+    ##  7 roof_style   Shed      1          2
+    ##  8 utilities    NoSeWa    1          1
+    ##  9 land_slope   Sev       0.615     13
+    ## 10 roof_matl    WdShake   0.6        5
 
 ### GarageYrBlt
 
@@ -155,9 +144,8 @@ forest.
 ``` r
 # I have to change all character variables to factor. Got an error: Error in gower_work....
 
-train_no_garageyrblt <- training[!is.na(training$GarageYrBlt), ] %>% select(-Id) %>% 
-        mutate_if(is.character, as.factor) %>% 
-        janitor::clean_names()
+train_no_garageyrblt <- training[!is.na(training$garage_yr_blt), ] %>% select(-id) %>% 
+        mutate_if(is.character, as.factor)
 
 ames_rf_importance <- recipe(sale_price ~ ., data = train_no_garageyrblt) %>% 
         step_knnimpute(all_predictors(), neighbors = 5) %>% 
@@ -198,7 +186,7 @@ rank_garagyrb <- which(df_rf_importance$variable == "garage_yr_blt")
 yrblt_garageyrb <- mean(train_no_garageyrblt$year_built == train_no_garageyrblt$garage_yr_blt)
 ```
 
-The year when the garage is built ranks number 20 of 79 variables in the
+The year when the garage is built ranks number 21 of 79 variables in the
 dataset. I could replace the garage\_yr\_blt with year\_built. 0.7897027
 of garages were built the same year as the house. So I’m not 100% sure
 if I should impute garage\_yr\_built with year\_built.
@@ -211,6 +199,141 @@ ggplot(train_no_garageyrblt,
 ```
 
 ![](data_prep_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
+
+### Imputing vs. recoding
+
+Let’s now compare the cross validated accuracy between models when
+imputing the garage\_yr\_blt with the year\_built variable and when the
+variable is recoded as 1 for garage, and 0 for no garage.
+
+``` r
+train_gar_imp <- training %>% 
+        mutate(garage_yr_blt = case_when(is.na(garage_yr_blt) ~ year_built,
+                                         TRUE ~ garage_yr_blt)) %>% 
+        mutate_if(is.character, as.factor)
+
+# Impute
+train_gar_imp_train <- train_gar_imp[1:1000, ]
+train_gar_imp_test <- train_gar_imp[1001:1460, ]
+
+ames_rf_impute <- recipe(sale_price ~ ., data = train_gar_imp_train) %>% 
+        step_knnimpute(all_predictors(), neighbors = 5) %>% 
+        prep(train_gar_imp)
+
+ames_rf_imp_train <- bake(ames_rf_impute, new_data = train_gar_imp_train)
+ames_rf_imp_test <- bake(ames_rf_impute, new_data = train_gar_imp_test)
+
+
+
+# Recode
+train_gar_recode <- training %>% 
+        mutate(garage_yr_blt_recode = case_when(is.na(garage_yr_blt) ~ 0,
+                                                TRUE ~ 1)) %>%
+        select(-garage_yr_blt) %>% 
+        mutate_if(is.character, as.factor)
+
+train_gar_recode_train <- train_gar_recode[1:1000, ]
+train_gar_recode_test <- train_gar_recode[1001:1460, ]
+
+
+ames_rf_recode <- recipe(sale_price ~ ., data = train_gar_recode_train) %>% 
+        step_knnimpute(all_predictors(), neighbors = 5) %>% 
+        prep(train_gar_recode)
+
+ames_rf_recode_train <- bake(ames_rf_recode, new_data = train_gar_recode_train)
+ames_rf_recode_test <- bake(ames_rf_recode, new_data = train_gar_recode_test)
+
+
+
+# Modelling
+n_features_imp <- length(setdiff(names(train_gar_imp_train), "sale_price"))
+n_features_rec <- length(setdiff(names(train_gar_recode_train), "sale_price"))
+
+
+
+rf_model_imp <- ranger::ranger(sale_price ~ .,
+                               data = ames_rf_imp_train,
+                               mtry = floor(n_features_imp / 3),
+                               respect.unordered.factors = "order",
+                               importance = "impurity")
+
+rf_model_rec <- ranger::ranger(sale_price ~ .,
+                               data = ames_rf_recode_train,
+                               mtry = floor(n_features_rec / 3),
+                               respect.unordered.factors = "order",
+                               importance = "impurity")
+
+
+pred_imp <- predict(rf_model_imp, data = ames_rf_imp_test)$predictions
+pred_rec <- predict(rf_model_rec, data = ames_rf_recode_test)$predictions
+
+
+rmse_imp <- RMSE(pred_imp, train_gar_imp_test$sale_price)
+rmse_rec <- RMSE(pred_rec, train_gar_recode_test$sale_price)
+```
+
+There is almost no differene in RMSE when recoding the variable vs. when
+the variable is imputed with year\_built. Even though there is a tiny
+difference, I’m going to make two data sets. The tiny difference only
+applies to random forest. Maybe neural network or elastic net will be
+able to use imputed data better than recoded.
+
+### New data
+
+``` r
+# Imputed
+training_imputed <- training %>% 
+        mutate(garage_yr_blt = case_when(is.na(garage_yr_blt) ~ year_built,
+                                         TRUE ~ garage_yr_blt)) %>% 
+        mutate_if(is.character, as.factor)
+
+# Recoded
+training_recode <- training %>% 
+        mutate(garage_yr_blt_recode = case_when(is.na(garage_yr_blt) ~ 0,
+                                                TRUE ~ 1)) %>%
+        select(-garage_yr_blt) %>% 
+        mutate_if(is.character, as.factor)
+```
+
+### Analysis of categorical variables
+
+``` r
+df_categorical <- training %>% 
+        select_if(is.character)
+
+# number of categories in each variable
+
+df_categorical %>% 
+        gather() %>% 
+        group_by(key) %>% 
+        summarise(number = n_distinct(value)) %>% 
+        ggplot(aes(x = fct_reorder(key, number),
+                   y =  number)) +
+        geom_bar(stat = "identity") +
+        coord_flip()
+```
+
+![](data_prep_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+
+``` r
+# neighborhood
+df_categorical %>% 
+        select(neighborhood) %>% 
+        group_by(neighborhood) %>% 
+        summarise(number = n()) %>% 
+        ggplot(aes(x = fct_reorder(neighborhood, number),
+                   y = number)) + 
+        geom_bar(stat = "identity") +
+        coord_flip()
+```
+
+![](data_prep_files/figure-gfm/unnamed-chunk-10-2.png)<!-- -->
+
+### Visualisation of numeric variables
+
+``` r
+df_numeric <- training %>% select_if(is.numeric)
+```
 
 ### Recipe
 

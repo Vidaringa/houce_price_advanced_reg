@@ -93,8 +93,8 @@ No clear pattern.
 
 df_numeric <- training %>% 
         select_if(is.numeric) %>% 
-        mutate(LotFrontage_cat = ifelse(is.na(LotFrontage), "missing", "no_missing")) %>% 
-        select(-Id,- LotFrontage) %>% 
+        mutate(LotFrontage_cat = ifelse(is.na(lot_frontage), "missing", "no_missing")) %>% 
+        select(-id,- lot_frontage) %>% 
         select(LotFrontage_cat, everything()) %>% 
         gather("key", "value", 2:37)
 
@@ -116,14 +116,14 @@ df_categorical <- training %>%
         select_if(is.character)
 
 df_lot <- training %>% 
-        select(Id, LotFrontage)
+        select(id, lot_frontage)
 
-df_categorical_lot <- bind_cols(df_lot, df_categorical) %>% select(-Id)
+df_categorical_lot <- bind_cols(df_lot, df_categorical) %>% select(-id)
 
 df_categorical <- df_categorical_lot %>% 
         gather("key", "value", 2:44) %>% 
         group_by(key, value) %>% 
-        summarise(missing = mean(is.na(LotFrontage)),
+        summarise(missing = mean(is.na(lot_frontage)),
                   fjoldi = n()) %>% 
         arrange(desc(missing))
 
@@ -138,9 +138,8 @@ Problematic variable. It is numeric but contains NA's for properties with no gar
 ```{r}
 # I have to change all character variables to factor. Got an error: Error in gower_work....
 
-train_no_garageyrblt <- training[!is.na(training$GarageYrBlt), ] %>% select(-Id) %>% 
-        mutate_if(is.character, as.factor) %>% 
-        janitor::clean_names()
+train_no_garageyrblt <- training[!is.na(training$garage_yr_blt), ] %>% select(-id) %>% 
+        mutate_if(is.character, as.factor)
 
 ames_rf_importance <- recipe(sale_price ~ ., data = train_no_garageyrblt) %>% 
         step_knnimpute(all_predictors(), neighbors = 5) %>% 
