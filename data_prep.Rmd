@@ -4,7 +4,7 @@ output: github_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
 # Data analysis
 library(tidyverse)     
@@ -19,8 +19,8 @@ library(visdat)
 library(ComplexHeatmap)
 
 
-training <- read_csv("train.csv")
-testing <- read_csv("test.csv")
+training <- read_csv("train.csv") %>% janitor::clean_names()
+testing <- read_csv("test.csv") %>% janitor::clean_names()
 
 ```
 
@@ -31,24 +31,24 @@ I start by fixing the obvious missing values. The only problematic variable seem
 ```{r}
 # Missing data according to data_description.txt file
 
-training$PoolQC[is.na(training$PoolQC)] <- "no_pool"
-training$MiscFeature[is.na(training$MiscFeature)] <- "none"
-training$Alley[is.na(training$Alley)] <- "no_alley"
-training$Fence[is.na(training$Fence)] <- "no_fence"
-training$FireplaceQu[is.na(training$FireplaceQu)] <- "no_fireplace"
+training$pool_qc[is.na(training$pool_qc)] <- "no_pool"
+training$misc_feature[is.na(training$misc_feature)] <- "none"
+training$alley[is.na(training$alley)] <- "no_alley"
+training$fence[is.na(training$fence)] <- "no_fence"
+training$fireplace_qu[is.na(training$fireplace_qu)] <- "no_fireplace"
 
 #  Basement
-training$BsmtFinType2[is.na(training$BsmtFinType2)] <- "no_basement"
-training$BsmtFinType1[is.na(training$BsmtFinType1)] <- "no_basement"
-training$BsmtExposure[is.na(training$BsmtExposure)] <- "no_basement"
-training$BsmtQual[is.na(training$BsmtQual)] <- "no_basement"
-training$BsmtCond[is.na(training$BsmtCond)] <- "no_basement"
+training$bsmt_fin_type2[is.na(training$bsmt_fin_type2)] <- "no_basement"
+training$bsmt_fin_type1[is.na(training$bsmt_fin_type1)] <- "no_basement"
+training$bsmt_exposure[is.na(training$bsmt_exposure)] <- "no_basement"
+training$bsmt_qual[is.na(training$bsmt_qual)] <- "no_basement"
+training$bsmt_cond[is.na(training$bsmt_cond)] <- "no_basement"
 
 # Garage
-training$GarageType[is.na(training$GarageType)] <- "no_garage"
-training$GarageFinish[is.na(training$GarageFinish)] <- "no_garage"
-training$GarageQual[is.na(training$GarageQual)] <- "no_garage"
-training$GarageCond[is.na(training$GarageCond)] <- "no_garage"
+training$garage_type[is.na(training$garage_type)] <- "no_garage"
+training$garage_finish[is.na(training$garage_finish)] <- "no_garage"
+training$garage_qual[is.na(training$garage_qual)] <- "no_garage"
+training$garage_cond[is.na(training$garage_cond)] <- "no_garage"
 
 
 df_missing <- map_df(training, function(x) mean(is.na(x))) %>%
@@ -103,9 +103,11 @@ ggplot(df_numeric,
            y = value,
            col = LotFrontage_cat)) + 
         geom_violin() +
-        facet_wrap(~key, ncol = 6, scales = "free_y")
+        facet_wrap(~key, ncol = 6, scales = "free_y") + 
+        theme(legend.position = "bottom")
 
 ```
+
 
 #### Categorical variables and connection to LotFrontage
 
@@ -127,13 +129,6 @@ df_categorical <- df_categorical %>%
 
 head(df_categorical, 10)
 
-# ggplot(df_categorical,
-#        aes(x = value,
-#            y = missing,
-#            fill = value)) +
-#         geom_bar(stat = "identity") +
-#         facet_wrap(~key) + 
-#         theme(legend.position = "none")
 
 ```
 
@@ -196,6 +191,101 @@ ggplot(train_no_garageyrblt,
 
 ```
 
+
+### Imputing vs. recoding
+Let's now compare the cross validated accuracy between models when imputing the garage_yr_blt with the year_built variable and when the variable is recoded as 1 for garage, and 0 for no garage.  
+```{r}
+train_gar_imp <- training %>% 
+        mutate(garage_yr_blt = case_when(is.na(garage_yr_blt) ~ year_built,
+                                         TRUE ~ garage_yr_blt)) %>% 
+        mutate_if(is.character, as.factor)
+
+# Impute
+train_gar_imp_train <- train_gar_imp[1:1000, ]
+train_gar_imp_test <- train_gar_imp[1001:1460, ]
+
+ames_rf_impute <- recipe(sale_price ~ ., data = train_gar_imp_train) %>% 
+        step_knnimpute(all_predictors(), neighbors = 5) %>% 
+        prep(train_gar_imp)
+
+ames_rf_imp_train <- bake(ames_rf_impute, new_data = train_gar_imp_train)
+ames_rf_imp_test <- bake(ames_rf_impute, new_data = train_gar_imp_test)
+
+
+
+# Recode
+train_gar_recode <- training %>% 
+        mutate(garage_yr_blt_recode = case_when(is.na(garage_yr_blt) ~ 0,
+                                                TRUE ~ 1)) %>%
+        select(-garage_yr_blt) %>% 
+        mutate_if(is.character, as.factor)
+
+train_gar_recode_train <- train_gar_recode[1:1000, ]
+train_gar_recode_test <- train_gar_recode[1001:1460, ]
+
+
+ames_rf_recode <- recipe(sale_price ~ ., data = train_gar_recode_train) %>% 
+        step_knnimpute(all_predictors(), neighbors = 5) %>% 
+        prep(train_gar_recode)
+
+ames_rf_recode_train <- bake(ames_rf_recode, new_data = train_gar_recode_train)
+ames_rf_recode_test <- bake(ames_rf_recode, new_data = train_gar_recode_test)
+
+
+
+# Modelling
+n_features_imp <- length(setdiff(names(train_gar_imp_train), "sale_price"))
+n_features_rec <- length(setdiff(names(train_gar_recode_train), "sale_price"))
+
+
+
+rf_model_imp <- ranger::ranger(sale_price ~ .,
+                               data = ames_rf_imp_train,
+                               mtry = floor(n_features_imp / 3),
+                               respect.unordered.factors = "order",
+                               importance = "impurity")
+
+rf_model_rec <- ranger::ranger(sale_price ~ .,
+                               data = ames_rf_recode_train,
+                               mtry = floor(n_features_rec / 3),
+                               respect.unordered.factors = "order",
+                               importance = "impurity")
+
+
+pred_imp <- predict(rf_model_imp, data = ames_rf_imp_test)$predictions
+pred_rec <- predict(rf_model_rec, data = ames_rf_recode_test)$predictions
+
+
+rmse_imp <- RMSE(pred_imp, train_gar_imp_test$sale_price)
+rmse_rec <- RMSE(pred_rec, train_gar_recode_test$sale_price)
+
+```
+
+There is almost no differene in RMSE when recoding the variable vs. when the variable is imputed with year_built. Even though there is a tiny difference, I'm going to make two data sets. The tiny difference only applies to random forest. Maybe neural network or elastic net will be able to use imputed data better than recoded.
+
+
+### New data
+```{r}
+# Imputed
+training_imputed <- training %>% 
+        mutate(garage_yr_blt = case_when(is.na(garage_yr_blt) ~ year_built,
+                                         TRUE ~ garage_yr_blt)) %>% 
+        mutate_if(is.character, as.factor)
+
+# Recoded
+training_recode <- training %>% 
+        mutate(garage_yr_blt_recode = case_when(is.na(garage_yr_blt) ~ 0,
+                                                TRUE ~ 1)) %>%
+        select(-garage_yr_blt) %>% 
+        mutate_if(is.character, as.factor)
+
+```
+
+
+### Visualisation of numeric variables
+```{r}
+
+```
 
 
 ### Recipe
