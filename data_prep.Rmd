@@ -284,7 +284,31 @@ training_recode <- training %>%
 
 ### Analysis of categorical variables
 ```{r}
-df_categorical
+df_categorical <- training %>% 
+        select_if(is.character)
+
+# number of categories in each variable
+
+df_categorical %>% 
+        gather() %>% 
+        group_by(key) %>% 
+        summarise(number = n_distinct(value)) %>% 
+        ggplot(aes(x = fct_reorder(key, number),
+                   y =  number)) +
+        geom_bar(stat = "identity") +
+        coord_flip()
+
+# neighborhood
+df_categorical %>% 
+        select(neighborhood) %>% 
+        group_by(neighborhood) %>% 
+        summarise(number = n()) %>% 
+        ggplot(aes(x = fct_reorder(neighborhood, number),
+                   y = number)) + 
+        geom_bar(stat = "identity") +
+        coord_flip()
+        
+
 ```
 
 
