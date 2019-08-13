@@ -118,9 +118,9 @@ df_categorical <- training %>%
 df_lot <- training %>% 
         select(Id, LotFrontage)
 
-df_categorical <- bind_cols(df_lot, df_categorical) %>% select(-Id)
+df_categorical_lot <- bind_cols(df_lot, df_categorical) %>% select(-Id)
 
-df_categorical <- df_categorical %>% 
+df_categorical <- df_categorical_lot %>% 
         gather("key", "value", 2:44) %>% 
         group_by(key, value) %>% 
         summarise(missing = mean(is.na(LotFrontage)),
@@ -282,9 +282,15 @@ training_recode <- training %>%
 ```
 
 
+### Analysis of categorical variables
+```{r}
+df_categorical
+```
+
+
 ### Visualisation of numeric variables
 ```{r}
-
+df_numeric <- training %>% select_if(is.numeric)
 ```
 
 
