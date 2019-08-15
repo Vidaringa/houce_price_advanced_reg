@@ -172,9 +172,17 @@ df_rf_importance <- as.data.frame(rf_model_importance$variable.importance) %>%
 colnames(df_rf_importance) <- c("variable", "importance")
 df_rf_importance <- df_rf_importance %>% arrange(desc(importance))
 
+# Finn út hvort breytan sé numeric eða ekki
+
+df_tegund <- map_df(training, function(x) is.numeric(x)) %>% 
+        gather("variable", "is_numeric")
+
+df_rf_importance <- left_join(df_rf_importance, df_tegund)
+
 ggplot(df_rf_importance,
        aes(x = fct_reorder(variable, -importance),
-           y = importance)) +
+           y = importance,
+           fill = is_numeric)) +
         geom_bar(stat = "identity") + 
         coord_flip()
 ```
@@ -186,7 +194,7 @@ rank_garagyrb <- which(df_rf_importance$variable == "garage_yr_blt")
 yrblt_garageyrb <- mean(train_no_garageyrblt$year_built == train_no_garageyrblt$garage_yr_blt)
 ```
 
-The year when the garage is built ranks number 21 of 79 variables in the
+The year when the garage is built ranks number 22 of 79 variables in the
 dataset. I could replace the garage\_yr\_blt with year\_built. 0.7897027
 of garages were built the same year as the house. So I’m not 100% sure
 if I should impute garage\_yr\_built with year\_built.
@@ -268,9 +276,16 @@ pred_imp <- predict(rf_model_imp, data = ames_rf_imp_test)$predictions
 pred_rec <- predict(rf_model_rec, data = ames_rf_recode_test)$predictions
 
 
-rmse_imp <- RMSE(pred_imp, train_gar_imp_test$sale_price)
-rmse_rec <- RMSE(pred_rec, train_gar_recode_test$sale_price)
+RMSE(pred_imp, train_gar_imp_test$sale_price)
 ```
+
+    ## [1] 28852.33
+
+``` r
+RMSE(pred_rec, train_gar_recode_test$sale_price)
+```
+
+    ## [1] 29275.29
 
 There is almost no differene in RMSE when recoding the variable vs. when
 the variable is imputed with year\_built. Even though there is a tiny
@@ -297,6 +312,10 @@ training_recode <- training %>%
 
 ### Analysis of categorical variables
 
+I can either lump rare categories and then create dummy variable or, if
+the variable is not important according to random forest, I can just
+recode the variable.
+
 ``` r
 df_categorical <- training %>% 
         select_if(is.character)
@@ -315,19 +334,44 @@ df_categorical %>%
 
 ![](data_prep_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
 
+#### Neighborhood
+
 ``` r
-# neighborhood
+# neighborhood - fraction
 df_categorical %>% 
-        select(neighborhood) %>% 
         group_by(neighborhood) %>% 
-        summarise(number = n()) %>% 
-        ggplot(aes(x = fct_reorder(neighborhood, number),
-                   y = number)) + 
+        summarise(frac = n()/1460) %>%
+        mutate(frac_cat = case_when(frac <= 0.02 ~ "lumb",
+                                    TRUE ~ "no_lumb")) %>% 
+        ggplot(aes(x = fct_reorder(neighborhood, frac),
+                   y = frac,
+                   fill = frac_cat)) + 
         geom_bar(stat = "identity") +
         coord_flip()
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-10-2.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
+
+#### exterior2nd
+
+``` r
+df_categorical %>% 
+        group_by(exterior2nd) %>% 
+        summarise(frac = n()/1460) %>%
+        mutate(frac_cat = case_when(frac <= 0.05 ~ "lumb",
+                                    TRUE ~ "no_lumb")) %>% 
+        ggplot(aes(x = fct_reorder(exterior2nd, frac),
+                   y = frac,
+                   fill = frac_cat)) + 
+        geom_bar(stat = "identity") +
+        coord_flip()
+```
+
+![](data_prep_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
+
+### Variables to lump
+
+  - Neighborhood using threashold of 0.02.
 
 ### Visualisation of numeric variables
 

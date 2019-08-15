@@ -26,7 +26,7 @@ testing <- read_csv("test.csv") %>% janitor::clean_names()
 
 
 
-## Missing data
+# Missing data
 I start by fixing the obvious missing values. The only problematic variable seems to be year built for garage where the garace is missing. One way would be to replace NA with year built for the house itselfe.   
 ```{r}
 # Missing data according to data_description.txt file
@@ -63,7 +63,7 @@ ggplot(filter(df_missing, value > 0),
 ```
 
 
-### Further investigation into missing values
+## Further investigation into missing values
 ```{r}
 convert_missing <- function(x) ifelse(is.na(x), 0, 1)
 
@@ -159,7 +159,7 @@ rf_model_importance <- ranger::ranger(sale_price ~ .,
 ```
 
 #### Is GarageYrBlt important?
-```{r}
+```{r, fig.height=10}
 df_rf_importance <- as.data.frame(rf_model_importance$variable.importance) %>% 
         rownames_to_column(var = "variable") %>% 
         as_tibble()
@@ -167,12 +167,19 @@ df_rf_importance <- as.data.frame(rf_model_importance$variable.importance) %>%
 colnames(df_rf_importance) <- c("variable", "importance")
 df_rf_importance <- df_rf_importance %>% arrange(desc(importance))
 
+# Finn út hvort breytan sé numeric eða ekki
+
+df_tegund <- map_df(training, function(x) is.numeric(x)) %>% 
+        gather("variable", "is_numeric")
+
+df_rf_importance <- left_join(df_rf_importance, df_tegund)
+
 ggplot(df_rf_importance,
        aes(x = fct_reorder(variable, -importance),
-           y = importance)) +
+           y = importance,
+           fill = is_numeric)) +
         geom_bar(stat = "identity") + 
         coord_flip()
-
 
 rank_garagyrb <- which(df_rf_importance$variable == "garage_yr_blt")
 yrblt_garageyrb <- mean(train_no_garageyrblt$year_built == train_no_garageyrblt$garage_yr_blt)
@@ -191,7 +198,7 @@ ggplot(train_no_garageyrblt,
 ```
 
 
-### Imputing vs. recoding
+## Imputing vs. recoding
 Let's now compare the cross validated accuracy between models when imputing the garage_yr_blt with the year_built variable and when the variable is recoded as 1 for garage, and 0 for no garage.  
 ```{r}
 train_gar_imp <- training %>% 
@@ -255,15 +262,15 @@ pred_imp <- predict(rf_model_imp, data = ames_rf_imp_test)$predictions
 pred_rec <- predict(rf_model_rec, data = ames_rf_recode_test)$predictions
 
 
-rmse_imp <- RMSE(pred_imp, train_gar_imp_test$sale_price)
-rmse_rec <- RMSE(pred_rec, train_gar_recode_test$sale_price)
+RMSE(pred_imp, train_gar_imp_test$sale_price)
+RMSE(pred_rec, train_gar_recode_test$sale_price)
 
 ```
 
 There is almost no differene in RMSE when recoding the variable vs. when the variable is imputed with year_built. Even though there is a tiny difference, I'm going to make two data sets. The tiny difference only applies to random forest. Maybe neural network or elastic net will be able to use imputed data better than recoded.
 
 
-### New data
+## New data
 ```{r}
 # Imputed
 training_imputed <- training %>% 
@@ -281,7 +288,8 @@ training_recode <- training %>%
 ```
 
 
-### Analysis of categorical variables
+# Analysis of categorical variables
+I can either lump rare categories and then create dummy variable or, if the variable is not important according to random forest, I can just recode the variable.
 ```{r}
 df_categorical <- training %>% 
         select_if(is.character)
@@ -297,18 +305,93 @@ df_categorical %>%
         geom_bar(stat = "identity") +
         coord_flip()
 
-# neighborhood
-df_categorical %>% 
-        select(neighborhood) %>% 
-        group_by(neighborhood) %>% 
-        summarise(number = n()) %>% 
-        ggplot(aes(x = fct_reorder(neighborhood, number),
-                   y = number)) + 
-        geom_bar(stat = "identity") +
-        coord_flip()
-        
+# Lump mynd
+gg_cat_lump <- function(data, x, thres = 0.02) {
+        data %>% 
+                group_by({{ x }}) %>% 
+                summarise(frac = n()/1460) %>% 
+                mutate(frac_cat = case_when(frac < thres ~ "lump",
+                                        TRUE ~ "no_lump")) %>% 
+                ggplot(aes(x = fct_reorder({{ x }}, frac),
+                           y = frac,
+                           fill = frac_cat)) + 
+                geom_bar(stat = "identity") +
+                coord_flip()
+}
+
+g_box <- function(data, x, thres = 0.02) {
+        data %>% 
+                group_by({{ x }}) %>% 
+                mutate(frac = n()/1460) %>% 
+                mutate(frac_cat = case_when(frac < thres ~ "lump",
+                                            TRUE ~ "no_lump")) %>% 
+                ungroup() %>% 
+                ggplot(aes(x = {{x}},
+                           y = sale_price,
+                       fill = frac_cat)) +
+                geom_boxplot()
+}
 
 ```
+
+## Neighborhood
+
+```{r}
+# neighborhood - fraction
+
+gg_cat_lump(training, neighborhood, thres = 0.02)
+g_box(training, x = neighborhood, thres = 0.01)
+
+```
+
+## exter_qual - ordered variable
+exter_qual will not be lumped since Ex and Fa would be lumped and the sale price is really different between those two quality categories.  
+```{r}
+gg_cat_lump(training, exter_qual, thres = 0.02)
+g_box(training, exter_qual, thres = 0.02)
+
+```
+
+
+## bsmt_qual
+Using threashold of 0.05 seems to be fine. Simildar distribution for sale_price for categories to be lumped.
+```{r}
+g1 <- gg_cat_lump(training, bsmt_qual, thres = 0.05)
+g2 <- g_box(training, bsmt_qual, thres = 0.05)
+
+gridExtra::grid.arrange(g1, g2)
+
+```
+
+
+## kitchen_qual
+I would need to use threashold = 0.1 to lump Ex and Fa. Those two categories have really different categories so I will not lump.
+```{r}
+
+g1 <- gg_cat_lump(training, kitchen_qual, thres = 0.1)
+g2 <- g_box(training, kitchen_qual, thres = 0.1)
+
+gridExtra::grid.arrange(g1, g2)
+
+```
+
+## fireplace_qu
+Using threashold of 0.05 I lump three categories, Fair (FA), Excellent (Ex) and Poor (Po). I don't think it's a good idea to lump these with such a different distributions. If I have trouble later on I might lump these.
+```{r}
+
+g1 <- gg_cat_lump(training, fireplace_qu, thres = 0.02)
+g2 <- g_box(training, fireplace_qu, thres = 0.02)
+
+gridExtra::grid.arrange(g1, g2)
+
+```
+
+
+
+### Lumping variables
+* Neighborhood using threashold of 0.01. With 0.02 the distribution of sale_price is too unequal
+* bsmt_qual using 0.05
+
 
 
 ### Visualisation of numeric variables
