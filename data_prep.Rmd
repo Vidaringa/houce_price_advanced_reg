@@ -3,7 +3,6 @@ title: "House Prices: Advanced Regression Techniques"
 output:
         github_document:
                 toc: true
-                toc_float: true
 ---
 
 ```{r setup, include=FALSE}
