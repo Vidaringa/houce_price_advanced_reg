@@ -9,7 +9,9 @@ output:
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
 # Data analysis
-library(tidyverse)     
+library(tidyverse)
+library(corrplot)
+library(mice)     # For imputing missing values
 
 # Modeling
 library(tidymodels)
@@ -34,14 +36,11 @@ all <- bind_rows(training[,-81], testing)
 ```
 
 # Introduction
-In this blog I will walk through the steps I take in analyzing and modelling the data. This is the first Kaggle competition I participate in. The the competition [here](https://www.kaggle.com/c/house-prices-advanced-regression-techniques/overview). 
+In this blog I will walk through the steps I take in analyzing and modelling the data for this competition. This is the first Kaggle competition I participate in. You can read about it [here](https://www.kaggle.com/c/house-prices-advanced-regression-techniques/overview). 
+
 
 ## First step
-First I combine the training and the test set. I only do this because I fix few variable that have missing values but with know reason, see the data description text file. After fixing the missing values I split the dataset back to training and test using the id's from both dataset. Since the reason of missingness is known and the same between training and test set there is no danger of lookahead bias.  
-
-
-# Missing data
-I start by fixing the obvious missing values, see data secription text file. The only problematic variable seem to be the year build of garage. Further below in this document is analysis on what can be done regarding that variable.    
+First I combine the training and the test set. I only do this because I have fix few variable that have missing values but with know reason, see the data description text file. After fixing the missing values I split the dataset back to training and test using the id's from both dataset. Since the reason of missingness is known and it's the same between training and test set there is no danger of lookahead bias.  
 
 ```{r, miss_train}
 # Missing data according to data_description.txt file
@@ -80,11 +79,42 @@ ggplot(filter(df_missing, value > 0),
 ```
 
 
+# EDA
+I'll start by exploring the data visually The first thing I do is to look at the distribution of numeric variables. As can be seen in the plot several of the numerical variables are categorical. For those variables I'll probably create full set of dummy variables and remove the zero-variance predictos. According to Kuhn and Johnson this is simple and effective way.  
+
+```{r, fig.width=7, fig.height=8}
+
+all %>% 
+        select_if(is.numeric) %>% 
+        pivot_longer(cols = 2:36,
+                     names_to = "breytur",
+                     values_to = "gildi") %>% 
+        ggplot(aes(x = gildi)) +
+        geom_histogram() +
+        facet_wrap(~ breytur, ncol = 6, scales = "free")
+
+```
+
+Since I'm planning to use Elastic Net I might need to transform some of the variables using either Box-Cox or Yeo johnson. Tree-based algorithms can handle skewed distribution. Elastic Net (a linear model with regularization) performance could be improved by transforming relevant variables.
+
+## Correlation among predictos
+Before plotting the correlation matrix I have to impute the missing values. I'll use the mice package which uses random forest to imputed the missing values.  
+According to the correlation plot there are few variables with high correlation. The year the house was built and the garage has high correlation. As will be discussed below the variable garage_yr_blt will be removed from the dataset.  
+
+```{r}
+all_numeric <- all %>%  select_if(is.numeric) 
+mice_mod <- mice(all_numeric, method = "rf")
+mice_output <- complete(mice_mod)
+
+M <- cor(mice_output)
+corrplot(M, method = "circle")
+
+```
 
 
-## Further investigation into missing values
+## Analyzing missing values
 In analyzing missing data I used methods outlined in **Feature Engineering and Selection** by Max Kuhn and Kjell Johnson. You can read the book online here: http://www.feat.engineering/ 
-The heatmap below shows that most predictors and samples have nearly complete information.
+The heatmap below shows that most predictors and samples have nearly complete information.  
 
 ```{r}
 
@@ -102,27 +132,31 @@ Heatmap(house_missing[sample(nrow(house_missing), 1000), ],
 
 ```
 
-Using co-occurance plot can further deepen our understanding of missing information. With this plot we can see if any variables tend to be missing together. For your dataset that doesn't seem to be the case except maybe for mas_vnr_area and mas_vnr_type. Those are only 16 samples out of 2.919. Those will be imputed later using K-nearest neighbors (KNN).  
+Using co-occurance plot can further deepen our understanding on missing information. With this plot we can see if any variables tend to be missing together. For this dataset that doesn't seem to be the case except maybe for mas_vnr_area and mas_vnr_type. Those are only 16 samples out of 2.919. Those will be imputed later using K-nearest neighbors (KNN). Note that I could also use bagged trees to impute missing values. However I will go with KNN here.  
 
-```{r}
+```{r, co_occurr}
+
 gg_miss_upset(all)
+
 ```
 
 
 ### lot_frontage
-lot_frontage referce to *Linear feet of street connected to property*. When compared to SalePrice there doesn't seems to be that much of a difference in sale price whether or not the lot_frontage is missing. It could be that the actual value is 0 but we don't know for sure. We could also impute the missing values using KNN or Bagging and compare it to imputing the missing values with zero.  
+lot_frontage referce to *Linear feet of street connected to property*. When compared to sale_price there doesn't seems to be that much of a difference whether or not the lot_frontage is missing. It could be that the actual value is 0 but we don't know for sure. We could also impute the missing values using KNN and compare it to imputing the missing values with zero.  
 
 #### Numeric variables and missingness of lot_frontage
 Here I check if there is any difference between the numeric variables and missingness of lot_frontage. Looking at the graph there doesn't seem to by any notable difference between the numeric variables and the missingness of lot_frontage.  
 
-```{r}
+```{r, lot_front, fig.height=7, fig.width=7}
 
-df_numeric <- training %>%
+df_numeric <- all %>%
         select_if(is.numeric) %>%
         mutate(LotFrontage_cat = ifelse(is.na(lot_frontage), "missing", "no_missing")) %>%
         select(-id,- lot_frontage) %>%
-        select(LotFrontage_cat, everything()) %>%
-        pivot_longer(cols = 2:37,
+        select(LotFrontage_cat, everything())
+
+df_numeric <- df_numeric %>% 
+        pivot_longer(cols = 2:ncol(df_numeric),
                      names_to = "key",
                      values_to = "value")
 
@@ -136,21 +170,21 @@ ggplot(df_numeric,
 
 ```
 
-Next I will train two random forest models to shed light on if I should imputed lot_frontage using KNN or with zeros. As will be discussed below, recoding garage_yr_blt as zero-one variable is better than omitting it, I will do it here when analyzing lot_frontage.  
+Next I will train two random forest models to shed light on if I should imputed lot_frontage using KNN or with zeros. As will be discussed below, omitting *garage_yr_blt* is betther than recoding the variable as zero-one. I will do it here when analyzing lot_frontage.  
 
 ```{r, lot_frontage_rf}
-training <- all %>% filter(id %in% train_id)
-training$sale_price <- sale_price
+lot_training <- all %>% filter(id %in% train_id)
+lot_training$sale_price <- sale_price
+
 
 # Impute with zero
-lot_zero <- training %>% 
+lot_zero <- lot_training %>% 
+        select(-garage_yr_blt) %>% 
         mutate(lot_frontage = case_when(is.na(lot_frontage) ~ 0,
-                                        TRUE ~ lot_frontage),
-               garage_yr_blt = case_when(is.na(garage_yr_blt) ~ 0,
-                                         TRUE ~ 1)) %>% 
+                                        TRUE ~ lot_frontage)) %>% 
         mutate_if(is.character, as.factor)
 
-lot_train_sample  <- sample(nrow(training), nrow(training)*2/3)
+lot_train_sample  <- sample(nrow(lot_training), nrow(lot_training)*2/3)
 lot_train <- lot_zero[lot_train_sample, ]
 lot_test <- lot_zero[-lot_train_sample, ]
 
@@ -163,8 +197,8 @@ lot_zero_train <- bake(lot_zero_rec, new_data = lot_train)
 lot_zero_test <- bake(lot_zero_rec, new_data = lot_test)
 
 
-# Impute
-lot_impute <- training %>% 
+# Impute using KNN
+lot_impute <- lot_training %>% 
         mutate_if(is.character, as.factor)
 
 lot_imp_train <- lot_impute[lot_train_sample, ]
@@ -183,7 +217,7 @@ lot_impute_test <- bake(lot_impute_rec, new_data = lot_imp_test)
 ```{r, lot_frontage_model}
 
 # Modelling
-n_features_lot <- length(setdiff(names(training), "sale_price"))
+n_features_lot <- length(setdiff(names(lot_training), "sale_price"))
 
 
 rf_model_zero <- ranger::ranger(sale_price ~ .,
@@ -193,7 +227,7 @@ rf_model_zero <- ranger::ranger(sale_price ~ .,
                                importance = "impurity")
 
 rf_model_impute <- ranger::ranger(sale_price ~ .,
-                               data = lot_impute_train[, -1],  # delet the id
+                               data = lot_impute_train[, -1],  # delete the id
                                mtry = floor(n_features_lot / 3),
                                respect.unordered.factors = "order",
                                importance = "impurity")
@@ -208,7 +242,7 @@ RMSE(pred_lot_impute, lot_impute_test$sale_price)
 
 ```
 
-The difference in terms of RMSE on test set is really small and not conclusive. Thus I will use what is easier to use, i.e. imputation.  
+The difference in terms of RMSE on test set is small. I will impute the missing values using KNN.    
 
 
 ### garage_yr_blt
@@ -217,7 +251,14 @@ This is a problematic variable. It is numeric and NA if garage is missing. I thi
 ```{r}
 # I have to change all character variables to factor. Got an error: Error in gower_work....
 
-train_no_garageyrblt <- training[!is.na(training$garage_yr_blt), ] %>% select(-id) %>% 
+train_no_garageyrblt <- all %>% 
+        filter(id %in% train_id)
+
+train_no_garageyrblt$sale_price <- sale_price
+
+train_no_garageyrblt <- train_no_garageyrblt %>% 
+               filter(!(is.na(garage_yr_blt))) %>% 
+        select(-id) %>% 
         mutate_if(is.character, as.factor)
 
 ames_rf_importance <- recipe(sale_price ~ ., data = train_no_garageyrblt) %>% 
@@ -238,7 +279,7 @@ rf_model_importance <- ranger::ranger(sale_price ~ .,
 ```
 
 
-```{r, fig.height=10}
+```{r, fig.height=7}
 df_rf_importance <- as.data.frame(rf_model_importance$variable.importance) %>% 
         rownames_to_column(var = "variable") %>% 
         as_tibble()
@@ -280,12 +321,18 @@ ggplot(train_no_garageyrblt,
 ## Omitting vs. recoding
 Let's now compare the cross validated accuracy between models when omitting the garage_yr_blt and when the variable is recoded as 1 for garage, and 0 for no garage.  
 ```{r}
-train_gar_omit <- training %>% 
-        filter(!is.na(garage_yr_blt)) %>% 
+
+# Omitting
+train_gar_omit <- all %>% 
+        filter(id %in% train_id)
+
+train_gar_omit$sale_price <- sale_price
+
+train_gar_omit <- train_gar_omit %>% 
+        select(-garage_yr_blt) %>% 
         mutate_if(is.character, as.factor)
 
 
-# Impute
 train_gar_omit_train <- train_gar_omit[1:1000, ]
 train_gar_omit_test <- train_gar_omit[1001:nrow(train_gar_omit), ]
 
@@ -298,12 +345,18 @@ ames_rf_omit_test <- bake(ames_rf_omit, new_data = train_gar_omit_test)
 
 
 
-# Recode
-train_gar_recode <- training %>% 
+# Recoding
+train_gar_recode <- all %>% 
+        filter(id %in% train_id)
+
+train_gar_recode$sale_price <- sale_price
+
+train_gar_recode <- train_gar_recode %>% 
         mutate(garage_yr_blt_recode = case_when(is.na(garage_yr_blt) ~ 0,
                                                 TRUE ~ 1)) %>%
         select(-garage_yr_blt) %>% 
-        mutate_if(is.character, as.factor)
+        mutate_if(is.character, as.factor) %>% 
+        filter(id %in% train_gar_omit$id)
 
 train_gar_recode_train <- train_gar_recode[1:1000, ]
 train_gar_recode_test <- train_gar_recode[1001:nrow(train_gar_omit), ]
@@ -344,19 +397,16 @@ pred_rec <- predict(rf_model_rec, data = ames_rf_recode_test)$predictions
 RMSE(pred_omit, train_gar_omit_test$sale_price)
 RMSE(pred_rec, train_gar_recode_test$sale_price)
 
-recode_omit_ratio <- scales::percent(RMSE(pred_rec, train_gar_recode_test$sale_price) / RMSE(pred_omit, train_gar_omit_test$sale_price) - 1)
 
 ```
 
-There is difference in RMSE with garage_yr_blt recoded giving higher accuracy than omitting it, the RMSE being `recoded_omit_ratio` higher with the variable recoded. This is the action taken here for this variable.  
+The difference is small. I will omit the variable form my analysis.
 
 
 ## New data
 ```{r}
 # Recoded
 all <- all %>%
-        mutate(garage_yr_blt_recode = case_when(is.na(garage_yr_blt) ~ 0,
-                                                TRUE ~ 1)) %>%
         select(-garage_yr_blt)
 
 ```
@@ -364,6 +414,7 @@ all <- all %>%
 
 # Analysis of categorical variables
 I can either lump rare categories and then create dummy variable or, if the variable is not important according to random forest, I can just recode the variable as zero-one variable. According to the variable importance graph above there are four important categorical variables. I will take a look at those four variables now to see if and how those variable will be lumped. All other categorical variables will be recoded as zero-one variables.  
+Note that some of the numeric and categorical
 ```{r}
 df_categorical <- all %>% 
         select_if(is.character)

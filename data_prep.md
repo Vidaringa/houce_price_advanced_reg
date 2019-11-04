@@ -1,12 +1,14 @@
 House Prices: Advanced Regression Techniques
 ================
 
-  - [Missing data](#missing-data)
-      - [Further investigation into missing
-        values](#further-investigation-into-missing-values)
+  - [Introduction](#introduction)
+      - [First step](#first-step)
+  - [EDA](#eda)
+      - [Correlation among predictos](#correlation-among-predictos)
+      - [Analyzing missing values](#analyzing-missing-values)
           - [lot\_frontage](#lot_frontage)
           - [garage\_yr\_blt](#garage_yr_blt)
-      - [Imputing vs. recoding](#imputing-vs.-recoding)
+      - [Omitting vs. recoding](#omitting-vs.-recoding)
       - [New data](#new-data)
   - [Analysis of categorical
     variables](#analysis-of-categorical-variables)
@@ -20,36 +22,47 @@ House Prices: Advanced Regression Techniques
             variables](#visualisation-of-numeric-variables)
           - [Recipe](#recipe)
 
-# Missing data
+# Introduction
 
-I start by fixing the obvious missing values. The only problematic
-variable seems to be year built for garage where the garace is missing.
-One way would be to replace NA with year built for the house itselfe.
+In this blog I will walk through the steps I take in analyzing and
+modelling the data for this competition. This is the first Kaggle
+competition I participate in. You can read about it
+[here](https://www.kaggle.com/c/house-prices-advanced-regression-techniques/overview).
+
+## First step
+
+First I combine the training and the test set. I only do this because I
+have fix few variable that have missing values but with know reason, see
+the data description text file. After fixing the missing values I split
+the dataset back to training and test using the id’s from both dataset.
+Since the reason of missingness is known and it’s the same between
+training and test set there is no danger of lookahead bias.
 
 ``` r
 # Missing data according to data_description.txt file
 
-training$pool_qc[is.na(training$pool_qc)] <- "no_pool"
-training$misc_feature[is.na(training$misc_feature)] <- "none"
-training$alley[is.na(training$alley)] <- "no_alley"
-training$fence[is.na(training$fence)] <- "no_fence"
-training$fireplace_qu[is.na(training$fireplace_qu)] <- "no_fireplace"
+# Various
+all$pool_qc[is.na(all$pool_qc)] <- "no_pool"
+all$misc_feature[is.na(all$misc_feature)] <- "none"
+all$alley[is.na(all$alley)] <- "no_alley"
+all$fence[is.na(all$fence)] <- "no_fence"
+all$fireplace_qu[is.na(all$fireplace_qu)] <- "no_fireplace"
 
 #  Basement
-training$bsmt_fin_type2[is.na(training$bsmt_fin_type2)] <- "no_basement"
-training$bsmt_fin_type1[is.na(training$bsmt_fin_type1)] <- "no_basement"
-training$bsmt_exposure[is.na(training$bsmt_exposure)] <- "no_basement"
-training$bsmt_qual[is.na(training$bsmt_qual)] <- "no_basement"
-training$bsmt_cond[is.na(training$bsmt_cond)] <- "no_basement"
+all$bsmt_fin_type2[is.na(all$bsmt_fin_type2)] <- "no_basement"
+all$bsmt_fin_type1[is.na(all$bsmt_fin_type1)] <- "no_basement"
+all$bsmt_exposure[is.na(all$bsmt_exposure)] <- "no_basement"
+all$bsmt_qual[is.na(all$bsmt_qual)] <- "no_basement"
+all$bsmt_cond[is.na(all$bsmt_cond)] <- "no_basement"
 
 # Garage
-training$garage_type[is.na(training$garage_type)] <- "no_garage"
-training$garage_finish[is.na(training$garage_finish)] <- "no_garage"
-training$garage_qual[is.na(training$garage_qual)] <- "no_garage"
-training$garage_cond[is.na(training$garage_cond)] <- "no_garage"
+all$garage_type[is.na(all$garage_type)] <- "no_garage"
+all$garage_finish[is.na(all$garage_finish)] <- "no_garage"
+all$garage_qual[is.na(all$garage_qual)] <- "no_garage"
+all$garage_cond[is.na(all$garage_cond)] <- "no_garage"
 
 
-df_missing <- map_df(training, function(x) mean(is.na(x))) %>%
+df_missing <- map_df(all, function(x) mean(is.na(x))) %>%
         gather()
 
 ggplot(filter(df_missing, value > 0),
@@ -59,9 +72,89 @@ ggplot(filter(df_missing, value > 0),
         coord_flip()
 ```
 
+![](data_prep_files/figure-gfm/miss_train-1.png)<!-- -->
+
+# EDA
+
+I’ll start by exploring the data visually The first thing I do is to
+look at the distribution of numeric variables. As can be seen in the
+plot several of the numerical variables are categorical. For those
+variables I’ll probably create full set of dummy variables and remove
+the zero-variance predictos. According to Kuhn and Johnson this is
+simple and effective way.
+
+``` r
+all %>% 
+        select_if(is.numeric) %>% 
+        pivot_longer(cols = 2:36,
+                     names_to = "breytur",
+                     values_to = "gildi") %>% 
+        ggplot(aes(x = gildi)) +
+        geom_histogram() +
+        facet_wrap(~ breytur, ncol = 6, scales = "free")
+```
+
 ![](data_prep_files/figure-gfm/unnamed-chunk-1-1.png)<!-- -->
 
-## Further investigation into missing values
+Since I’m planning to use Elastic Net I might need to transform some of
+the variables using either Box-Cox or Yeo johnson. Tree-based algorithms
+can handle skewed distribution. Elastic Net (a linear model with
+regularization) performance could be improved by transforming relevant
+variables.
+
+## Correlation among predictos
+
+Before plotting the correlation matrix I have to impute the missing
+values. I’ll use the mice package which uses random forest to imputed
+the missing values.  
+According to the correlation plot there are few variables with high
+correlation. The year the house was built and the garage has high
+correlation. As will be discussed below the variable garage\_yr\_blt
+will be removed from the dataset.
+
+``` r
+all_numeric <- all %>%  select_if(is.numeric) 
+mice_mod <- mice(all_numeric, method = "rf")
+```
+
+    ## 
+    ##  iter imp variable
+    ##   1   1  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   1   2  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   1   3  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   1   4  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   1   5  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   2   1  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   2   2  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   2   3  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   2   4  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   2   5  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   3   1  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   3   2  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   3   3  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   3   4  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   3   5  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   4   1  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   4   2  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   4   3  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   4   4  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   4   5  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   5   1  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   5   2  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   5   3  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   5   4  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+    ##   5   5  lot_frontage  mas_vnr_area  bsmt_fin_sf1  bsmt_fin_sf2  bsmt_unf_sf  total_bsmt_sf  bsmt_full_bath  bsmt_half_bath  garage_yr_blt  garage_cars  garage_area
+
+``` r
+mice_output <- complete(mice_mod)
+
+M <- cor(mice_output)
+corrplot(M, method = "circle")
+```
+
+![](data_prep_files/figure-gfm/unnamed-chunk-2-1.png)<!-- -->
+
+## Analyzing missing values
 
 In analyzing missing data I used methods outlined in **Feature
 Engineering and Selection** by Max Kuhn and Kjell Johnson. You can read
@@ -71,9 +164,9 @@ shows that most predictors and samples have nearly complete information.
 ``` r
 convert_missing <- function(x) ifelse(is.na(x), 0, 1)
 
-house_missing <- apply(training, 2, convert_missing)
+house_missing <- apply(all, 2, convert_missing)
 
-Heatmap(house_missing,
+Heatmap(house_missing[sample(nrow(house_missing), 1000), ],
         name = "Missing",
         column_title = "Predictors",
         row_title = "Samles",
@@ -82,44 +175,49 @@ Heatmap(house_missing,
         row_names_gp = gpar(fontsize = 0)) # text size for row names
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-2-1.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
 
-Using co-occurance plot can further deepen our understanding of missing
-information. With his plot we can see if any variables tend to be
-missing together. For your dataset that doesn’t seem to be the case.
+Using co-occurance plot can further deepen our understanding on missing
+information. With this plot we can see if any variables tend to be
+missing together. For this dataset that doesn’t seem to be the case
+except maybe for mas\_vnr\_area and mas\_vnr\_type. Those are only 16
+samples out of 2.919. Those will be imputed later using K-nearest
+neighbors (KNN). Note that I could also use bagged trees to impute
+missing values. However I will go with KNN here.
 
 ``` r
-gg_miss_upset(training)
+gg_miss_upset(all)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
+![](data_prep_files/figure-gfm/co_occurr-1.png)<!-- -->
 
 ### lot\_frontage
 
 lot\_frontage referce to *Linear feet of street connected to property*.
-When compared to SalePrice there doesn’t seems to be that much of a
-difference in sale price whether or not the lot\_frontage is missing. It
-could be that the actual value is 0 but we don’t know for sure. So we
-can impute the missing values using KNN or Bagging and compare it to
-imputing the missing values with zero.
+When compared to sale\_price there doesn’t seems to be that much of a
+difference whether or not the lot\_frontage is missing. It could be that
+the actual value is 0 but we don’t know for sure. We could also impute
+the missing values using KNN and compare it to imputing the missing
+values with zero.
 
 #### Numeric variables and missingness of lot\_frontage
 
 Here I check if there is any difference between the numeric variables
-and missingness of LotFrontage. Looking at the graph there doesn’t seem
-to by any notable difference between the numeric variables and the
-missingness of LotFrontage.
+and missingness of lot\_frontage. Looking at the graph there doesn’t
+seem to by any notable difference between the numeric variables and the
+missingness of lot\_frontage.
 
 ``` r
-df_numeric <- training %>%
+df_numeric <- all %>%
         select_if(is.numeric) %>%
         mutate(LotFrontage_cat = ifelse(is.na(lot_frontage), "missing", "no_missing")) %>%
         select(-id,- lot_frontage) %>%
-        select(LotFrontage_cat, everything()) %>%
-        pivot_longer(cols = 2:37,
+        select(LotFrontage_cat, everything())
+
+df_numeric <- df_numeric %>% 
+        pivot_longer(cols = 2:ncol(df_numeric),
                      names_to = "key",
                      values_to = "value")
-
 
 ggplot(df_numeric,
        aes(x = LotFrontage_cat,
@@ -130,55 +228,110 @@ ggplot(df_numeric,
         theme(legend.position = "bottom")
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+![](data_prep_files/figure-gfm/lot_front-1.png)<!-- -->
 
-<!-- #### Categorical variables and connection to lot_frontage -->
+Next I will train two random forest models to shed light on if I should
+imputed lot\_frontage using KNN or with zeros. As will be discussed
+below, omitting *garage\_yr\_blt* is betther than recoding the variable
+as zero-one. I will do it here when analyzing lot\_frontage.
 
-<!-- Some of the categorical variables have values that are 100% missing. Not sure as of now that I will do about it. I'll probably l -->
+``` r
+lot_training <- all %>% filter(id %in% train_id)
+lot_training$sale_price <- sale_price
 
-<!-- ```{r} -->
 
-<!-- df_categorical <- training %>%  -->
+# Impute with zero
+lot_zero <- lot_training %>% 
+        select(-garage_yr_blt) %>% 
+        mutate(lot_frontage = case_when(is.na(lot_frontage) ~ 0,
+                                        TRUE ~ lot_frontage)) %>% 
+        mutate_if(is.character, as.factor)
 
-<!--         select_if(is.character) -->
+lot_train_sample  <- sample(nrow(lot_training), nrow(lot_training)*2/3)
+lot_train <- lot_zero[lot_train_sample, ]
+lot_test <- lot_zero[-lot_train_sample, ]
 
-<!-- df_lot <- training %>%  -->
 
-<!--         select(id, lot_frontage) -->
+lot_zero_rec <- recipe(sale_price ~ ., data = lot_train) %>% 
+        step_knnimpute(all_predictors(), neighbors = 5) %>% 
+        prep(lot_train)
 
-<!-- df_categorical_lot <- bind_cols(df_lot, df_categorical) %>% select(-id) -->
+lot_zero_train <- bake(lot_zero_rec, new_data = lot_train)
+lot_zero_test <- bake(lot_zero_rec, new_data = lot_test)
 
-<!-- df_categorical <- df_categorical_lot %>% -->
 
-<!--         pivot_longer(cols = 2:44, -->
+# Impute using KNN
+lot_impute <- lot_training %>% 
+        mutate_if(is.character, as.factor)
 
-<!--                      names_to = "key", -->
+lot_imp_train <- lot_impute[lot_train_sample, ]
+lot_imp_test <- lot_impute[-lot_train_sample, ]
 
-<!--                      values_to = "value") %>%  -->
+lot_impute_rec <- recipe(sale_price ~ ., data = lot_imp_train) %>% 
+        step_knnimpute(all_predictors(), neighbors = 5) %>% 
+        prep(lot_imp_train)
 
-<!--         group_by(key, value) %>%  -->
+lot_impute_train <- bake(lot_impute_rec, new_data = lot_imp_train)
+lot_impute_test <- bake(lot_impute_rec, new_data = lot_imp_test)
+```
 
-<!--         summarise(missing = mean(is.na(lot_frontage)), -->
+``` r
+# Modelling
+n_features_lot <- length(setdiff(names(lot_training), "sale_price"))
 
-<!--                   fjoldi = n()) %>%  -->
 
-<!--         arrange(desc(missing)) -->
+rf_model_zero <- ranger::ranger(sale_price ~ .,
+                               data = lot_zero_train[, -1], # delete the id
+                               mtry = floor(n_features_lot / 3),
+                               respect.unordered.factors = "order",
+                               importance = "impurity")
 
-<!-- head(df_categorical, 10) -->
+rf_model_impute <- ranger::ranger(sale_price ~ .,
+                               data = lot_impute_train[, -1],  # delete the id
+                               mtry = floor(n_features_lot / 3),
+                               respect.unordered.factors = "order",
+                               importance = "impurity")
 
-<!-- ``` -->
+
+pred_lot_zero <- predict(rf_model_zero, data = lot_zero_test)$predictions
+pred_lot_impute <- predict(rf_model_impute, data = lot_impute_test)$predictions
+
+
+RMSE(pred_lot_zero, lot_zero_test$sale_price)
+```
+
+    ## [1] 24584.86
+
+``` r
+RMSE(pred_lot_impute, lot_impute_test$sale_price)
+```
+
+    ## [1] 24879.67
+
+The difference in terms of RMSE on test set is small. I will impute the
+missing values using KNN.
 
 ### garage\_yr\_blt
 
-This is a problematic variable. It is numeric but contains NA’s for
-properties with no garage. Could impute it with the year the house was
-built. First I’ll check if this variable is important or not using
-random forest.
+This is a problematic variable. It is numeric and NA if garage is
+missing. I think imputing the variable is not the right thing to do.
+Imputing it with zero or the year when the house was build would
+indicate that there is a garage in the first place, which is not true.
+Before taking any actions I’ll check if this variable is important or
+not using random forest by first omitting the samples with missing data
+for garage\_yr\_blt.
 
 ``` r
 # I have to change all character variables to factor. Got an error: Error in gower_work....
 
-train_no_garageyrblt <- training[!is.na(training$garage_yr_blt), ] %>% select(-id) %>% 
+train_no_garageyrblt <- all %>% 
+        filter(id %in% train_id)
+
+train_no_garageyrblt$sale_price <- sale_price
+
+train_no_garageyrblt <- train_no_garageyrblt %>% 
+               filter(!(is.na(garage_yr_blt))) %>% 
+        select(-id) %>% 
         mutate_if(is.character, as.factor)
 
 ames_rf_importance <- recipe(sale_price ~ ., data = train_no_garageyrblt) %>% 
@@ -219,17 +372,17 @@ ggplot(df_rf_importance,
         coord_flip()
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
 
 ``` r
 rank_garagyrb <- which(df_rf_importance$variable == "garage_yr_blt")
 yrblt_garageyrb <- mean(train_no_garageyrblt$year_built == train_no_garageyrblt$garage_yr_blt)
 ```
 
-The year when the garage is built ranks number 21 of 79 variables in the
-dataset. I could replace the garage\_yr\_blt with year\_built. 0.7897027
-of garages were built the same year as the house. So I’m not 100% sure
-if I should impute garage\_yr\_built with year\_built.
+The year when the garage is built ranks number 20 of 79 variables in the
+dataset. It is important enought that I don’t want to omit it right
+away. So the next thing I do is to compare RMSE on test set when I omit
+the variable vs when the variable is present.
 
 ``` r
 ggplot(train_no_garageyrblt,
@@ -238,42 +391,53 @@ ggplot(train_no_garageyrblt,
         geom_point()
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
 
-## Imputing vs. recoding
+## Omitting vs. recoding
 
 Let’s now compare the cross validated accuracy between models when
-imputing the garage\_yr\_blt with the year\_built variable and when the
-variable is recoded as 1 for garage, and 0 for no garage.
+omitting the garage\_yr\_blt and when the variable is recoded as 1 for
+garage, and 0 for no garage.
 
 ``` r
-train_gar_imp <- training %>% 
-        mutate(garage_yr_blt = case_when(is.na(garage_yr_blt) ~ year_built,
-                                         TRUE ~ garage_yr_blt)) %>% 
-        mutate_if(is.character, as.factor)
+# Omitting
+train_gar_omit <- all %>% 
+        filter(id %in% train_id)
 
-# Impute
-train_gar_imp_train <- train_gar_imp[1:1000, ]
-train_gar_imp_test <- train_gar_imp[1001:1460, ]
+train_gar_omit$sale_price <- sale_price
 
-ames_rf_impute <- recipe(sale_price ~ ., data = train_gar_imp_train) %>% 
-        step_knnimpute(all_predictors(), neighbors = 5) %>% 
-        prep(train_gar_imp)
-
-ames_rf_imp_train <- bake(ames_rf_impute, new_data = train_gar_imp_train)
-ames_rf_imp_test <- bake(ames_rf_impute, new_data = train_gar_imp_test)
-
-
-
-# Recode
-train_gar_recode <- training %>% 
-        mutate(garage_yr_blt_recode = case_when(is.na(garage_yr_blt) ~ 0,
-                                                TRUE ~ 1)) %>%
+train_gar_omit <- train_gar_omit %>% 
         select(-garage_yr_blt) %>% 
         mutate_if(is.character, as.factor)
 
+
+train_gar_omit_train <- train_gar_omit[1:1000, ]
+train_gar_omit_test <- train_gar_omit[1001:nrow(train_gar_omit), ]
+
+ames_rf_omit <- recipe(sale_price ~ ., data = train_gar_omit_train) %>% 
+        step_knnimpute(all_predictors(), neighbors = 5) %>% 
+        prep(train_gar_omit)
+
+ames_rf_omit_train <- bake(ames_rf_omit, new_data = train_gar_omit_train)
+ames_rf_omit_test <- bake(ames_rf_omit, new_data = train_gar_omit_test)
+
+
+
+# Recoding
+train_gar_recode <- all %>% 
+        filter(id %in% train_id)
+
+train_gar_recode$sale_price <- sale_price
+
+train_gar_recode <- train_gar_recode %>% 
+        mutate(garage_yr_blt_recode = case_when(is.na(garage_yr_blt) ~ 0,
+                                                TRUE ~ 1)) %>%
+        select(-garage_yr_blt) %>% 
+        mutate_if(is.character, as.factor) %>% 
+        filter(id %in% train_gar_omit$id)
+
 train_gar_recode_train <- train_gar_recode[1:1000, ]
-train_gar_recode_test <- train_gar_recode[1001:1460, ]
+train_gar_recode_test <- train_gar_recode[1001:nrow(train_gar_omit), ]
 
 
 ames_rf_recode <- recipe(sale_price ~ ., data = train_gar_recode_train) %>% 
@@ -286,14 +450,14 @@ ames_rf_recode_test <- bake(ames_rf_recode, new_data = train_gar_recode_test)
 
 
 # Modelling
-n_features_imp <- length(setdiff(names(train_gar_imp_train), "sale_price"))
+n_features_omit <- length(setdiff(names(train_gar_omit_train), "sale_price"))
 n_features_rec <- length(setdiff(names(train_gar_recode_train), "sale_price"))
 
 
 
-rf_model_imp <- ranger::ranger(sale_price ~ .,
-                               data = ames_rf_imp_train,
-                               mtry = floor(n_features_imp / 3),
+rf_model_omit <- ranger::ranger(sale_price ~ .,
+                               data = ames_rf_omit_train,
+                               mtry = floor(n_features_omit / 3),
                                respect.unordered.factors = "order",
                                importance = "impurity")
 
@@ -304,58 +468,52 @@ rf_model_rec <- ranger::ranger(sale_price ~ .,
                                importance = "impurity")
 
 
-pred_imp <- predict(rf_model_imp, data = ames_rf_imp_test)$predictions
+pred_omit <- predict(rf_model_omit, data = ames_rf_omit_test)$predictions
 pred_rec <- predict(rf_model_rec, data = ames_rf_recode_test)$predictions
 
 
-RMSE(pred_imp, train_gar_imp_test$sale_price)
+RMSE(pred_omit, train_gar_omit_test$sale_price)
 ```
 
-    ## [1] 28488.37
+    ## [1] 29183.32
 
 ``` r
 RMSE(pred_rec, train_gar_recode_test$sale_price)
 ```
 
-    ## [1] 28480.68
+    ## [1] 28763.02
 
-There is almost no differene in RMSE when recoding the variable vs. when
-the variable is imputed with year\_built. Even though there is a tiny
-difference, I’m going to make two data sets. The tiny difference only
-applies to random forest. Maybe neural network or elastic net will be
-able to use imputed data better than recoded.
+The difference is small. I will omit the variable form my analysis.
 
 ## New data
 
 ``` r
-# Imputed
-training_imputed <- training %>% 
-        mutate(garage_yr_blt = case_when(is.na(garage_yr_blt) ~ year_built,
-                                         TRUE ~ garage_yr_blt)) %>% 
-        mutate_if(is.character, as.factor)
-
 # Recoded
-training_recode <- training %>% 
-        mutate(garage_yr_blt_recode = case_when(is.na(garage_yr_blt) ~ 0,
-                                                TRUE ~ 1)) %>%
-        select(-garage_yr_blt) %>% 
-        mutate_if(is.character, as.factor)
+all <- all %>%
+        select(-garage_yr_blt)
 ```
 
 # Analysis of categorical variables
 
 I can either lump rare categories and then create dummy variable or, if
 the variable is not important according to random forest, I can just
-recode the variable.
+recode the variable as zero-one variable. According to the variable
+importance graph above there are four important categorical variables. I
+will take a look at those four variables now to see if and how those
+variable will be lumped. All other categorical variables will be recoded
+as zero-one variables.  
+Note that some of the numeric and categorical
 
 ``` r
-df_categorical <- training %>% 
+df_categorical <- all %>% 
         select_if(is.character)
 
-# number of categories in each variable
 
+# number of categories in each variable
 df_categorical %>% 
-        gather() %>% 
+        pivot_longer(cols = 1:ncol(df_categorical),
+                     names_to = "key",
+                     values_to = "value") %>% 
         group_by(key) %>% 
         summarise(number = n_distinct(value)) %>% 
         ggplot(aes(x = fct_reorder(key, number),
@@ -364,7 +522,7 @@ df_categorical %>%
         coord_flip()
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
 
 ``` r
 # Lump mynd
@@ -403,13 +561,13 @@ g_box <- function(data, x, thres = 0.02) {
 gg_cat_lump(training, neighborhood, thres = 0.02)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
 
 ``` r
-g_box(training, x = neighborhood, thres = 0.01)
+g_box(training, x = neighborhood, thres = 0.01) + coord_flip()
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-11-2.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-10-2.png)<!-- -->
 
 ## exter\_qual - ordered variable
 
@@ -420,13 +578,13 @@ sale price is really different between those two quality categories.
 gg_cat_lump(training, exter_qual, thres = 0.02)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
 
 ``` r
 g_box(training, exter_qual, thres = 0.02)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-12-2.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-11-2.png)<!-- -->
 
 ## bsmt\_qual
 
@@ -440,7 +598,7 @@ g2 <- g_box(training, bsmt_qual, thres = 0.05)
 gridExtra::grid.arrange(g1, g2)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
 
 ## kitchen\_qual
 
@@ -454,7 +612,7 @@ g2 <- g_box(training, kitchen_qual, thres = 0.1)
 gridExtra::grid.arrange(g1, g2)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
 
 ## fireplace\_qu
 
@@ -470,7 +628,7 @@ g2 <- g_box(training, fireplace_qu, thres = 0.02)
 gridExtra::grid.arrange(g1, g2)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
+![](data_prep_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
 
 ### Lumping variables
 
