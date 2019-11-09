@@ -1,0 +1,56 @@
+---
+title: "Untitled"
+output:
+        github_document:
+                toc: true
+                fig_width: 7
+                fig_height: 7
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+
+# Modelling
+library(tidymodels)
+library(caret)
+library(caretEnsemble)
+
+library(doParallel)
+library(parallel)
+
+trainin <- read_csv("final_")
+```
+
+
+# Setup
+
+```{r, model_setup}
+
+ctrl <- trainControl(method = "cv",
+                     number = 10,
+                     allowParallel = TRUE)
+
+
+```
+
+## Recipe
+```{r}
+
+ames_recipe <- recipe(sale_price ~ .,
+                      data = )
+
+```
+
+
+# Training
+
+## Random forest
+
+```{r, rf}
+
+rf_train <- train()
+
+```
+

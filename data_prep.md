@@ -9,18 +9,28 @@ House Prices: Advanced Regression Techniques
           - [lot\_frontage](#lot_frontage)
           - [garage\_yr\_blt](#garage_yr_blt)
       - [Omitting vs. recoding](#omitting-vs.-recoding)
-      - [New data](#new-data)
   - [Analysis of categorical
     variables](#analysis-of-categorical-variables)
+      - [Important categorical variables and number of
+        categories](#important-categorical-variables-and-number-of-categories)
       - [Neighborhood](#neighborhood)
       - [exter\_qual - ordered variable](#exter_qual---ordered-variable)
       - [bsmt\_qual](#bsmt_qual)
       - [kitchen\_qual](#kitchen_qual)
-      - [fireplace\_qu](#fireplace_qu)
           - [Lumping variables](#lumping-variables)
-          - [Visualisation of numeric
-            variables](#visualisation-of-numeric-variables)
-          - [Recipe](#recipe)
+  - [Analyzis of numeric variables](#analyzis-of-numeric-variables)
+      - [Transforming numeric
+        variables](#transforming-numeric-variables)
+      - [Variables with lots of zeros](#variables-with-lots-of-zeros)
+  - [Feature engineering](#feature-engineering)
+      - [Interaction effects](#interaction-effects)
+      - [New variable using unsupervised
+        learning](#new-variable-using-unsupervised-learning)
+          - [K-means](#k-means)
+          - [Hierarchial clustering](#hierarchial-clustering)
+          - [Gaussian mixture models](#gaussian-mixture-models)
+          - [Importance of clusters](#importance-of-clusters)
+      - [Save the final data](#save-the-final-data)
 
 # Introduction
 
@@ -76,7 +86,7 @@ ggplot(filter(df_missing, value > 0),
 
 # EDA
 
-I’ll start by exploring the data visually The first thing I do is to
+I’ll start by exploring the data visually. The first thing I do is to
 look at the distribution of numeric variables. As can be seen in the
 plot several of the numerical variables are categorical. For those
 variables I’ll probably create full set of dummy variables and remove
@@ -95,6 +105,19 @@ all %>%
 ```
 
 ![](data_prep_files/figure-gfm/unnamed-chunk-1-1.png)<!-- -->
+
+``` r
+training %>% 
+        select_if(is.numeric) %>% 
+        pivot_longer(cols = 2:37,
+                     names_to = "key",
+                     values_to = "value") %>% 
+        ggplot(aes(x = value, y = log(sale_price))) +
+        facet_wrap(~ key, scales = "free") + 
+        geom_point()
+```
+
+![](data_prep_files/figure-gfm/unnamed-chunk-1-2.png)<!-- -->
 
 Since I’m planning to use Elastic Net I might need to transform some of
 the variables using either Box-Cox or Yeo johnson. Tree-based algorithms
@@ -195,45 +218,21 @@ gg_miss_upset(all)
 
 lot\_frontage referce to *Linear feet of street connected to property*.
 When compared to sale\_price there doesn’t seems to be that much of a
-difference whether or not the lot\_frontage is missing. It could be that
-the actual value is 0 but we don’t know for sure. We could also impute
-the missing values using KNN and compare it to imputing the missing
-values with zero.
+difference whether or not the lot\_frontage is missing. There are three
+ways we can deal with this variable:
 
-#### Numeric variables and missingness of lot\_frontage
+1)  Delete the variable
+2)  Impute NA’s with zero
+3)  Impute NA´s using KNN (Bagging could also be used but I’m going for
+    KNN)
 
-Here I check if there is any difference between the numeric variables
-and missingness of lot\_frontage. Looking at the graph there doesn’t
-seem to by any notable difference between the numeric variables and the
-missingness of lot\_frontage.
-
-``` r
-df_numeric <- all %>%
-        select_if(is.numeric) %>%
-        mutate(LotFrontage_cat = ifelse(is.na(lot_frontage), "missing", "no_missing")) %>%
-        select(-id,- lot_frontage) %>%
-        select(LotFrontage_cat, everything())
-
-df_numeric <- df_numeric %>% 
-        pivot_longer(cols = 2:ncol(df_numeric),
-                     names_to = "key",
-                     values_to = "value")
-
-ggplot(df_numeric,
-       aes(x = LotFrontage_cat,
-           y = value,
-           fill = LotFrontage_cat)) +
-        geom_violin() +
-        facet_wrap(~key, ncol = 6, scales = "free_y") +
-        theme(legend.position = "bottom")
-```
-
-![](data_prep_files/figure-gfm/lot_front-1.png)<!-- -->
-
-Next I will train two random forest models to shed light on if I should
-imputed lot\_frontage using KNN or with zeros. As will be discussed
-below, omitting *garage\_yr\_blt* is betther than recoding the variable
-as zero-one. I will do it here when analyzing lot\_frontage.
+I’m not a fan of deleting variables so I will focus on 2) and 3) above.
+I will train two random forest models to shed light on if I should
+imputed lot\_frontage using KNN or with zero. I choose random forest
+here because it’s a powerful algorithm even with default tuning
+parameters. Note, as will be discussed below, omitting *garage\_yr\_blt*
+is betther than recoding the variable as dummy variable. I will omit the
+variable here.
 
 ``` r
 lot_training <- all %>% filter(id %in% train_id)
@@ -300,26 +299,25 @@ pred_lot_impute <- predict(rf_model_impute, data = lot_impute_test)$predictions
 RMSE(pred_lot_zero, lot_zero_test$sale_price)
 ```
 
-    ## [1] 24584.86
+    ## [1] 25939.05
 
 ``` r
 RMSE(pred_lot_impute, lot_impute_test$sale_price)
 ```
 
-    ## [1] 24879.67
+    ## [1] 26351.36
 
 The difference in terms of RMSE on test set is small. I will impute the
-missing values using KNN.
+missing values using e.g. KNN.
 
 ### garage\_yr\_blt
 
-This is a problematic variable. It is numeric and NA if garage is
-missing. I think imputing the variable is not the right thing to do.
-Imputing it with zero or the year when the house was build would
-indicate that there is a garage in the first place, which is not true.
-Before taking any actions I’ll check if this variable is important or
-not using random forest by first omitting the samples with missing data
-for garage\_yr\_blt.
+This is a problematic variable. It is numeric and contains NA if garage
+is missing. Imputing the variable is not desirable since it would
+indicate that there is a garage, which is incorrect. Before taking any
+actions I’ll check if this variable is important or not using random
+forest by first omitting the samples with missing data for
+garage\_yr\_blt.
 
 ``` r
 # I have to change all character variables to factor. Got an error: Error in gower_work....
@@ -346,7 +344,8 @@ rf_model_importance <- ranger::ranger(sale_price ~ .,
                                       data = ames_rf_importance,
                                       mtry = floor(n_features / 3),
                                       respect.unordered.factors = "order",
-                                      importance = "impurity")
+                                      importance = "impurity",
+                                      num.trees = 2000)
 ```
 
 ``` r
@@ -372,32 +371,24 @@ ggplot(df_rf_importance,
         coord_flip()
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
+![](data_prep_files/figure-gfm/rf_importance-1.png)<!-- -->
 
 ``` r
 rank_garagyrb <- which(df_rf_importance$variable == "garage_yr_blt")
 yrblt_garageyrb <- mean(train_no_garageyrblt$year_built == train_no_garageyrblt$garage_yr_blt)
 ```
 
-The year when the garage is built ranks number 20 of 79 variables in the
+The year when the garage is built ranks number 21 of 79 variables in the
 dataset. It is important enought that I don’t want to omit it right
 away. So the next thing I do is to compare RMSE on test set when I omit
-the variable vs when the variable is present.
-
-``` r
-ggplot(train_no_garageyrblt,
-       aes(x = year_built,
-           y = garage_yr_blt)) + 
-        geom_point()
-```
-
-![](data_prep_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
+the variable vs when the variable is present. If the variable was
+unimportant I would remove it without the analysis below.
 
 ## Omitting vs. recoding
 
-Let’s now compare the cross validated accuracy between models when
-omitting the garage\_yr\_blt and when the variable is recoded as 1 for
-garage, and 0 for no garage.
+Let’s now compare the cross validated RMSE between models when omitting
+the garage\_yr\_blt and when the variable is recoded as 1 for garage,
+and 0 for no garage.
 
 ``` r
 # Omitting
@@ -475,36 +466,66 @@ pred_rec <- predict(rf_model_rec, data = ames_rf_recode_test)$predictions
 RMSE(pred_omit, train_gar_omit_test$sale_price)
 ```
 
-    ## [1] 29183.32
+    ## [1] 28607.51
 
 ``` r
 RMSE(pred_rec, train_gar_recode_test$sale_price)
 ```
 
-    ## [1] 28763.02
+    ## [1] 28250.57
 
 The difference is small. I will omit the variable form my analysis.
 
-## New data
-
 ``` r
-# Recoded
+# remove garage
+
 all <- all %>%
         select(-garage_yr_blt)
 ```
 
 # Analysis of categorical variables
 
-I can either lump rare categories and then create dummy variable or, if
-the variable is not important according to random forest, I can just
-recode the variable as zero-one variable. According to the variable
-importance graph above there are four important categorical variables. I
-will take a look at those four variables now to see if and how those
-variable will be lumped. All other categorical variables will be recoded
-as zero-one variables.  
-Note that some of the numeric and categorical
+Categorical/nominal variables can have two or more categories.
+Categories can be classified as *ordered* or *unordered*. Neighborhood
+is an uordered categorical variable while exter\_qual (evaluates the
+quality of the material on the exterior) is ordered categorical
+variable.
+
+For unordered categorical variables I will create dummy variables
+(i.e. C-1 dummy variables when there are C categories). Tree based
+models (random forest, baggin, xgboost, …) can all handle categorical
+variables. Elastic Net however can’t. There are no clear evidence if
+categorical variables are better than dummy variables or not (see
+chapter 5.7 in Kuhn and Johnson). So there shouldn’t be any negative
+effect on accuracy by converting the categorical variables to dummy
+variables.
+
+For ordered varabiles like exter\_qual I’ll use (by using step\_dummy
+function from the recipes pacakge) polynomial contrast. See chapter 5.5
+in Kuhn and Johnson.
+
+Categorical variable can be imbalanced, i.e. few really big categories
+and few really small. If variable like that is converted to dummy
+variable, one of the newly created variables could have zero or near
+zero variance during resampling (cross-validation). This is a problem
+for many models. One way would be to remove zero or near-zero variance
+predictors. For important categorical variables I will consider lumping
+small categories, if present, into one ‘other’ category before
+converting the predictor to a dummy variable. By this I hopefully will
+limit the loss of information.
+
+There will be a loss of information by lumping categories. But there is
+also a loss of information if a variable is removed. I assume I will
+minimize the loss by lumping small categories.
+
+## Important categorical variables and number of categories
+
+The graph below shows the number of categories per categorical variable.
+Neighborhood has 25 categories and is an important variable. Thus
 
 ``` r
+cat_important <- c("neighborhood", "exter_qual", "bsmt_qual", "kitchen_qual")
+
 df_categorical <- all %>% 
         select_if(is.character)
 
@@ -514,22 +535,25 @@ df_categorical %>%
         pivot_longer(cols = 1:ncol(df_categorical),
                      names_to = "key",
                      values_to = "value") %>% 
-        group_by(key) %>% 
+        mutate(important = case_when(key %in% cat_important ~ "important",
+               TRUE ~ "not_important")) %>% 
+        group_by(key, important) %>% 
         summarise(number = n_distinct(value)) %>% 
         ggplot(aes(x = fct_reorder(key, number),
-                   y =  number)) +
+                   y =  number,
+                   fill = important)) +
         geom_bar(stat = "identity") +
         coord_flip()
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
+![](data_prep_files/figure-gfm/cat_imp-1.png)<!-- -->
 
 ``` r
 # Lump mynd
 gg_cat_lump <- function(data, x, thres = 0.02) {
         data %>% 
                 group_by({{ x }}) %>% 
-                summarise(frac = n()/1460) %>% 
+                summarise(frac = n()/nrow(data)) %>% 
                 mutate(frac_cat = case_when(frac < thres ~ "lump",
                                         TRUE ~ "no_lump")) %>% 
                 ggplot(aes(x = fct_reorder({{ x }}, frac),
@@ -542,7 +566,7 @@ gg_cat_lump <- function(data, x, thres = 0.02) {
 g_box <- function(data, x, thres = 0.02) {
         data %>% 
                 group_by({{ x }}) %>% 
-                mutate(frac = n()/1460) %>% 
+                mutate(frac = n()/nrow(data)) %>% 
                 mutate(frac_cat = case_when(frac < thres ~ "lump",
                                             TRUE ~ "no_lump")) %>% 
                 ungroup() %>% 
@@ -555,19 +579,22 @@ g_box <- function(data, x, thres = 0.02) {
 
 ## Neighborhood
 
+Using threshold of 0.02 or 0.05 will result in lumping into ‘other’
+category neighborhood with different sale price distributions. I might
+choose threshold around 0.02 - 0.05.
+
 ``` r
 # neighborhood - fraction
+# the default threshold in step_dummy() is 0.05. I'll try it here.
+thres = 0.03
 
-gg_cat_lump(training, neighborhood, thres = 0.02)
+g_neig_1 <- gg_cat_lump(all, neighborhood, thres = thres)
+g_neig_2 <- g_box(training, x = neighborhood, thres = thres) + coord_flip()
+
+gridExtra::grid.arrange(g_neig_1, g_neig_2)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
-
-``` r
-g_box(training, x = neighborhood, thres = 0.01) + coord_flip()
-```
-
-![](data_prep_files/figure-gfm/unnamed-chunk-10-2.png)<!-- -->
+![](data_prep_files/figure-gfm/neighborhood-1.png)<!-- -->
 
 ## exter\_qual - ordered variable
 
@@ -575,16 +602,13 @@ exter\_qual will not be lumped since Ex and Fa would be lumped and the
 sale price is really different between those two quality categories.
 
 ``` r
-gg_cat_lump(training, exter_qual, thres = 0.02)
+g_ex_1 <- gg_cat_lump(training, exter_qual, thres = 0.05)
+g_ex_2 <- g_box(training, exter_qual, thres = 0.05)
+
+gridExtra::grid.arrange(g_ex_1, g_ex_2)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
-
-``` r
-g_box(training, exter_qual, thres = 0.02)
-```
-
-![](data_prep_files/figure-gfm/unnamed-chunk-11-2.png)<!-- -->
+![](data_prep_files/figure-gfm/exter_qual-1.png)<!-- -->
 
 ## bsmt\_qual
 
@@ -592,13 +616,13 @@ Using threashold of 0.05 seems to be fine. Simildar distribution for
 sale\_price for categories to be lumped.
 
 ``` r
-g1 <- gg_cat_lump(training, bsmt_qual, thres = 0.05)
-g2 <- g_box(training, bsmt_qual, thres = 0.05)
+g_bsmt_1 <- gg_cat_lump(training, bsmt_qual, thres = 0.05)
+g_bsmt_2 <- g_box(training, bsmt_qual, thres = 0.05)
 
-gridExtra::grid.arrange(g1, g2)
+gridExtra::grid.arrange(g_bsmt_1, g_bsmt_2)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
+![](data_prep_files/figure-gfm/bsmt_qual-1.png)<!-- -->
 
 ## kitchen\_qual
 
@@ -606,46 +630,367 @@ I would need to use threashold = 0.1 to lump Ex and Fa. Those two
 categories have really different categories so I will not lump.
 
 ``` r
-g1 <- gg_cat_lump(training, kitchen_qual, thres = 0.1)
-g2 <- g_box(training, kitchen_qual, thres = 0.1)
+g_kit_1 <- gg_cat_lump(training, kitchen_qual, thres = 0.1)
+g_kit_2 <- g_box(training, kitchen_qual, thres = 0.1)
 
-gridExtra::grid.arrange(g1, g2)
+gridExtra::grid.arrange(g_kit_1, g_kit_2)
 ```
 
-![](data_prep_files/figure-gfm/unnamed-chunk-13-1.png)<!-- -->
-
-## fireplace\_qu
-
-Using threashold of 0.05 I lump three categories, Fair (FA), Excellent
-(Ex) and Poor (Po). I don’t think it’s a good idea to lump these with
-such a different distributions. If I have trouble later on I might lump
-these.
-
-``` r
-g1 <- gg_cat_lump(training, fireplace_qu, thres = 0.02)
-g2 <- g_box(training, fireplace_qu, thres = 0.02)
-
-gridExtra::grid.arrange(g1, g2)
-```
-
-![](data_prep_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
+![](data_prep_files/figure-gfm/kitchen-1.png)<!-- -->
 
 ### Lumping variables
 
-  - Neighborhood using threashold of 0.01. With 0.02 the distribution of
-    sale\_price is too unequal
+  - Neighborhood using threashold of 0.03.
   - bsmt\_qual using 0.05
 
-### Visualisation of numeric variables
+# Analyzis of numeric variables
+
+Many of the numeric variables are categories encoded as integers, like
+garage\_cars. Those variables will be converted to factors. Other
+variables needs transformation (Box Cox or Yeo Johnson). Then there are
+few variables like low\_qual\_fin where \~98% of the values are zero. If
+these variables are not important, according to random forest, I might
+create dummy variable.
 
 ``` r
-df_numeric <- training %>% select_if(is.numeric)
+cat_int <- c("bedroom_abv_gr", "bsmt_full_bath", "bstm_half_bath", "fireplaces", "garage_cars",
+             "half_bath", "kitchen_abv_gr", "mo_sold", "overall_cond", "overall_qual", "tot_rms_abv_grd",
+             "yr_sold")
 ```
 
-### Recipe
+## Transforming numeric variables
+
+For tree based models it’s unnecessary to transform the variables. If
+the variables are transformed it will not have any effect on tree based
+models. However, linear models like Elastic Net will benefit. Here I
+analiyze few variables using Box Cox and Yeo Johnson transformations.
 
 ``` r
-# ames_recipe_knn <- recipe(SalePrice ~ ., data = training) %>% 
-#         step_log(all_outcomes()) %>% 
-#         step_knnimpute()
+trans_func <- function(x) {
+        bx <- forecast::BoxCox(x, lambda = "auto")
+        yj <- bestNormalize::yeojohnson(x)$x.t
+        
+        tibble(raw = x,
+               bx = bx,
+               yj = yj,
+               raw_scale = scale(x)) %>% 
+                pivot_longer(cols = raw:raw_scale,
+                             names_to = "key",
+                             values_to = "value") %>% 
+                ggplot(aes(x = value)) +
+                facet_wrap(~ key, ncol = 1, scales = "free") +
+                geom_histogram()
+}
+
+
+trans_func(training$bsmt_unf_sf)
+```
+
+![](data_prep_files/figure-gfm/transformation_analsis-1.png)<!-- -->
+
+The data looks weird for some varialbe, e.g. bmst\_unf\_sf. I’m not sure
+about the large bar at -5 for Box Cox and -2 for Yeo Johnson. I posted a
+question regardin this on stats.stackexchange.com, see
+[here](https://stats.stackexchange.com/questions/434918/transforming-data-or-not).
+
+## Variables with lots of zeros
+
+There are many variables that has lots of zeros. According to random
+forest importance score the only variable with lots of zero that might
+be of any importance is mas\_vnr\_area (Masonry veneer area in square
+feet). All other variables will be converted to dummy variable.
+
+``` r
+zeros <- c("bsmt_fin_sf2", "enclosed_porch", "low_qual_fin_sf", "mas_vnr_area", "misc_val", "pool_area",
+           "screen_porch", "x3ssn_porch")
+
+zeros_important <- df_rf_importance %>% 
+        mutate(zero_variable = case_when(variable %in% zeros ~ "zero_variable",
+                                         TRUE ~ "not_zero_variable"))
+
+ggplot(zeros_important,
+       aes(x = fct_reorder(variable, -importance),
+           y = importance,
+           fill = zero_variable)) +
+        geom_col() +
+        coord_flip()
+```
+
+![](data_prep_files/figure-gfm/zero_variable-1.png)<!-- -->
+
+Plotting mas\_vnr\_area against sale\_price shows that higher
+mas\_vnr\_area is associated with higher sale\_price. I’m not a fan of
+plot like this since this upward sloping line could easily disappear
+when accounting for other variables. I will leave this variable as is,
+i.e. I will not convert to dummy variable.
+
+``` r
+ggplot(select(training, c(sale_price, mas_vnr_area)), aes(x = mas_vnr_area, log(sale_price))) +
+        geom_point() + 
+        geom_smooth(method = "lm", se = FALSE, col = "red") + 
+        geom_smooth(se = FALSE)
+```
+
+![](data_prep_files/figure-gfm/mas_vnr_area-1.png)<!-- -->
+
+# Feature engineering
+
+Feature engineering refers to everythinig from transforming variables
+(e.g. using Box Cox), creating dummy variables for categorical
+variables. One other thing is creating additional variables like
+interaction effects. I will cover interaction effect in next section.
+
+## Interaction effects
+
+There might be interaction between variables that would be useful to
+include in the model. Algorithms like random forest can detect
+interactions effects. Since I’m not only relying on algorithms like
+random forest I have to add interaction effect to the model. I would add
+all possible interaction effect, total of k\*(k-1)/2 for k variables.
+That would be around 3.000 interaction effects. This is quite a lot so
+I’ll use the variable importance plot from random forest to get an
+idea of possible interaction effect. Please check out chapter 7 in Kuhn
+and Johnson regarding detecting interaction effect.
+
+According to the importance plot there seems to be five really important
+variables. This indicates that there might be interaction effect between
+those five variables. I wont do it here but I could also create all
+possible interaction effect as mentioned above and then use Lasso to
+select only those variables that help to predict the outcome. If I were
+a teacher I would leave this as an exercise for the students :)
+
+## New variable using unsupervised learning
+
+Unsupervised learning like K-means clustering, hierarchical clustering
+or gaussian mixture model can be used to classify observations into
+mutually exclusive groups/clusters. K-means clustering doesn’t handle
+categorical variables unless they are one-hot encoded (fancy name for
+dummy variables where you include all the C categoreis instead of C-1).
+K-means clustering and hierarchical clustering becomes slow and
+ineffective. A possible remedy is to create a Gower distance matrix and
+then feed it into e.g. PAM (partitioning around medians).
+
+I will largely follow Boehmke and Greenwell (Hands-On Machine Learning
+with R), chapter 20-22.
+
+Note\! After trying out few clustering algorithms on the whole dataset
+I’ve decided that before running the clustering algorithms I will
+select the most important numeric variables according to random forest.
+I would select categorical variables ande one-hot encode them but that
+didn’t work well. According to the importance plot above there seems to
+be a drop in importance after x1st\_flr\_sf.
+
+``` r
+important <- all %>% 
+        filter(id %in% train_id) %>% 
+        select(overall_qual, gr_liv_area, garage_cars, total_bsmt_sf, x1st_flr_sf)
+
+important_scale <- scale(important)
+```
+
+### K-means
+
+I’ll use the so-called elbow method where I look for a ‘kink’ on the
+graph below. According to this method I would choose \~6 clusters.
+
+``` r
+fviz_nbclust(
+  important_scale, 
+  kmeans, 
+  method = "wss", 
+  k.max = 25, 
+  verbose = FALSE
+)
+```
+
+![](data_prep_files/figure-gfm/k_means-1.png)<!-- -->
+
+``` r
+ames_kmean <- kmeans(important_scale, 6)
+
+sale_kmeans <- tibble(clusters = ames_kmean$cluster,
+                      sale_price = sale_price)
+
+ggplot(sale_kmeans,
+       aes(x = as.character(clusters),
+           y = sale_price)) + 
+        geom_boxplot()
+```
+
+![](data_prep_files/figure-gfm/k_means-2.png)<!-- -->
+
+### Hierarchial clustering
+
+According to the three plots below it’s not obvious how many clusters
+there might be. There could be six clusters according to the elbow
+method, two according to silhouette method and only one according to the
+gap statistic.
+
+``` r
+# p1 <- fviz_nbclust(important_scale, FUN = hcut, method = "wss",
+#                    k.max = 25) +
+#   ggtitle("(A) Elbow method")
+# p2 <- fviz_nbclust(important_scale, FUN = hcut, method = "silhouette",
+#                    k.max = 25) +
+#   ggtitle("(B) Silhouette method")
+# p3 <- fviz_nbclust(important_scale, FUN = hcut, method = "gap_stat",
+#                    k.max = 25) +
+#   ggtitle("(C) Gap statistic")
+# 
+# saveRDS(p1, "p1.rds")
+# saveRDS(p2, "p2.rds")
+# saveRDS(p3, "p3.rds")
+
+p1 <- readRDS("p1.rds")
+p2 <- readRDS("p2.rds")
+p3 <- readRDS("p3.rds")
+
+
+# Display plots side by side
+gridExtra::grid.arrange(p1, p2, p3, nrow = 1)
+```
+
+![](data_prep_files/figure-gfm/hclust-1.png)<!-- -->
+
+### Gaussian mixture models
+
+From chapter 22 of (Hands-On Machine Learning with R) it says that:  
+*Traditional clustering algorithms such as k-means (Chapter 20) and
+hierarchical (Chapter 21) clustering are heuristic-based algorithms that
+derive clusters directly based on the data rather than incorporating a
+measure of probability or uncertainty to the cluster assignments.
+Model-based clustering attempts to address this concern and provide soft
+assignment where observations have a probability of belonging to each
+cluster. Moreover, model-based clustering provides the added benefit of
+automatically identifying the optimal number of clusters.*
+
+The GMM results indicate there could be nine clusters.
+
+``` r
+ames_mc <- Mclust(important, G = 1:25)
+summary(ames_mc)
+```
+
+    ## ---------------------------------------------------- 
+    ## Gaussian finite mixture model fitted by EM algorithm 
+    ## ---------------------------------------------------- 
+    ## 
+    ## Mclust VEV (ellipsoidal, equal shape) model with 9 components: 
+    ## 
+    ##  log-likelihood    n  df       BIC      ICL
+    ##       -27000.49 1460 156 -55137.63 -55193.6
+    ## 
+    ## Clustering table:
+    ##   1   2   3   4   5   6   7   8   9 
+    ## 129 285 183  38  75 173  87 318 172
+
+``` r
+gmm_sale <- tibble(sale_price = sale_price,
+                   clusters = as.character(ames_mc$classification))
+
+ggplot(gmm_sale,
+       aes(x = clusters,
+           y = sale_price)) + 
+        geom_boxplot()
+```
+
+![](data_prep_files/figure-gfm/gmm-1.png)<!-- -->
+
+There seems to be more variability in sale\_price between the six
+clusters according to K-means clustering than the variability between
+the nine clusters according to GMM.
+
+``` r
+# Here I'll use the flexclust package
+
+test_set <- all %>% filter(id %in% test_id) %>%
+        select(overall_qual, gr_liv_area, garage_cars, total_bsmt_sf, x1st_flr_sf)
+
+test_set <- scale(test_set)
+
+km <- kcca(important_scale, k = 6, kccaFamily("kmeans"))
+
+pred_test <- predict(km, newdata = test_set, k = 6, kccaFamily("kmeans"))
+
+all$kmeans <- c(ames_kmean$cluster, pred_test)
+```
+
+### Importance of clusters
+
+Before I start training different models I’m curious if the clusters I
+just added are important or not. I’ll use random forest to check for
+importance. What I find interesting is that all the variables used in K
+means clusterins and the clusters themselfe are pretty important. One
+might have guessed that including the five variables and the clusters
+might be unnecessary.
+
+``` r
+ames_train_rf_imp <- all %>% 
+  filter(id %in% train_id) %>% 
+  select(-id) %>% 
+  mutate_if(is.character, as.factor)
+
+ames_train_rf_imp$sale_price <- sale_price
+
+
+ames_train_rf_im <- recipe(sale_price ~ ., data = ames_train_rf_imp) %>% 
+        step_knnimpute(all_predictors(), neighbors = 5) %>% 
+        prep(ames_train_rf_imp) %>% 
+        bake(ames_train_rf_imp)
+```
+
+``` r
+n_features <- length(setdiff(names(ames_train_rf_imp), "sale_price"))
+
+
+rf_model_imp_ames <- ranger::ranger(log(sale_price) ~ .,
+                                      data = ames_train_rf_im,
+                                      mtry = floor(n_features / 3),
+                                      respect.unordered.factors = "order",
+                                      importance = "impurity",
+                                      num.trees = 2000)
+
+
+
+ames_rf_importance <- as.data.frame(rf_model_imp_ames$variable.importance) %>% 
+        rownames_to_column(var = "variable") %>% 
+        as_tibble()
+
+colnames(ames_rf_importance) <- c("variable", "importance")
+
+ames_rf_importance <- ames_rf_importance %>%
+  arrange(desc(importance)) %>% 
+  mutate(used_in_kmeans = case_when(variable %in% c("overall_qual",
+                                                    "gr_liv_area",
+                                                    "garage_cars",
+                                                    "total_bsmt_sf",
+                                                    "x1st_flr_sf") ~ "used_in",
+                                    TRUE ~ "not_used"))
+  
+
+
+# Finn út hvort breytan sé numeric eða ekki
+
+ggplot(ames_rf_importance,
+       aes(x = fct_reorder(variable, -importance),
+           y = importance,
+           fill = used_in_kmeans)) +
+        geom_bar(stat = "identity") + 
+        coord_flip()
+```
+
+![](data_prep_files/figure-gfm/ames_imp_rf-1.png)<!-- -->
+
+## Save the final data
+
+``` r
+final_train <- all %>%
+  filter(id %in% train_id)
+final_train$sale_price <- sale_price
+
+write_csv(final_train, "final_trian.csv")
+
+final_test <- all %>% 
+  filter(id %in% test_id) %>% 
+  write_csv("final_test.csv")
 ```
