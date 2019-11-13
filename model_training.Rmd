@@ -18,6 +18,7 @@ library(caret)
 library(caretEnsemble)
 
 
+
 library(doParallel)
 library(parallel)
 
@@ -78,6 +79,10 @@ ames_training <- ames_all %>% filter(id %in% df_training$id) %>% select(-id)
 # ames_training$sale_price <- df_training$sale_price
 ames_test <- ames_all %>% filter(id %in% df_test$id) %>% select(-id)
 
+```
+
+
+```{r}
 # Breytur sem ég mun breyta úr integer í factor (unordered)
 int_var <- c("bedroom_abv_gr", "bsmt_full_bath", "bsmt_half_bath", "fireplaces", "full_bath", "garage_cars",
              "half_bath", "kitchen_abv_gr", "mo_sold", "tot_rms_abv_grd", "kmeans", "ms_sub_class", "yr_sold")
@@ -97,7 +102,10 @@ yeo <- c("total_bsmt_sf", "x1st_flr_sf", "lot_area", "bsmt_fin_sf1", "mas_vnr_ar
 to_scale <- ames_all %>% names() %>% as_tibble() %>% filter(!(value %in% to_dummy), !(value %in% int_var), value != "id")
 to_scale <- to_scale$value
 
+to_interact_neig <- 
+
 ```
+
 
 
 # Setup
@@ -129,16 +137,18 @@ ames_recipe<- recipe(~., data = ames_training) %>%
         step_dummy(one_of(to_dummy)) %>% 
         
         # Interaction
-        step_interact(terms = ~ starts_with("overall_"):starts_with("neighborhood_")) %>%
-        step_interact(terms = ~ starts_with("overall_"):gr_liv_area) %>% 
-        step_interact(terms = ~ starts_with("overall_"):starts_with("exter_qual_")) %>% 
-        step_interact(terms = ~ starts_with("neighborhood_"):gr_liv_area) %>% 
-        step_interact(terms = ~ starts_with("neighborhood_"):starts_with("exter_qual_")) %>% 
+        step_interact(terms = ~ starts_with("overall_"):starts_with("neighborhood_") +
+                              starts_with("overall_"):gr_liv_area + 
+                              starts_with("overall_"):starts_with("exter_qual_")) %>%
+        
+        step_interact(terms = ~ starts_with("neighborhood_"):gr_liv_area + 
+                              starts_with("neighborhood_"):starts_with("exter_qual_")) %>% 
         step_interact(terms = ~ gr_liv_area:starts_with("exter_qual_")) %>% 
         step_center(one_of(to_scale)) %>% 
         step_scale(one_of(to_scale))
 
 ames_recipe_nzv <- ames_recipe %>% 
+        step_zv(all_predictors()) %>% 
         step_nzv(all_predictors())
 
 ```
@@ -180,29 +190,138 @@ ctrl <- trainControl(method = "cv",
                      number = 10,
                      allowParallel = TRUE)
 
+ctrl_2 <- trainControl(method = "repeatedcv",
+                       number = 10,
+                       repeats = 3)
 ```
 
 
-## Random forest
+## Elastic net
 
-```{r, rf}
+```{r, enet}
 
-no_cores <- detectCores() - 1  
+# y <- train_data_nzv$sale_price
+# x <- train_data_nzv %>% select(-sale_price)
+
+no_cores <- detectCores() - 4  
 registerDoParallel(cores=no_cores)  
 cl <- makeCluster(no_cores)
 
 byrja <- Sys.time()
 
-rf_train <- train(sale_price ~ .,
-                  data = train_data_nzv,
-                  method = "xgbTree",
-                  tuneLength = 10,
-                  trControl = ctrl)
+enet_train <- train(sale_price ~ .,
+                    data = train_data_nzv,
+                    method = "glmnet",
+                    tuneLength = 20,
+                    trControl = ctrl_2)
 
 stopCluster(cl)
 
 Sys.time() - byrja
 
+saveRDS(enet_train, "glmnet.rds")
+
+plot(enet_train)
+
 ```
 
+
+
+## MARS
+
+```{r, mars}
+
+no_cores <- detectCores() - 4
+registerDoParallel(cores=no_cores)
+cl <- makeCluster(no_cores)
+
+byrja <- Sys.time()
+
+mars_train <- train(sale_price ~ .,
+                    data = train_data_nzv,
+                    method = "earth",
+                    tuneLength = 50,
+                    metric = "RMSE",
+                    trControl = ctrl)
+
+stopCluster(cl)
+
+Sys.time() - byrja
+
+plot(mars_train)
+
+saveRDS(mars_train, "mars.rds")
+
+
+```
+
+
+## KNN
+
+```{r, knn}
+
+no_cores <- detectCores() - 4
+registerDoParallel(cores=no_cores)
+cl <- makeCluster(no_cores)
+
+byrja <- Sys.time()
+
+knn_train <- train(sale_price ~ .,
+                    data = train_data_nzv,
+                    method = "knn",
+                    tuneLength = 30,
+                    metric = "RMSE",
+                    trControl = ctrl_2)
+
+stopCluster(cl)
+
+Sys.time() - byrja
+
+plot(knn_train)
+
+saveRDS(knn_train, "knn.rds")
+
+```
+
+
+## Random Forest
+
+```{r, rf}
+
+no_cores <- detectCores() - 3
+registerDoParallel(cores=no_cores)
+cl <- makeCluster(no_cores)
+
+byrja <- Sys.time()
+
+rf_train <- train(sale_price ~ .,
+                    data = train_data_nzv,
+                    method = "ranger",
+                    tuneLength = 10,
+                    metric = "RMSE",
+                    trControl = ctrl)
+
+stopCluster(cl)
+
+Sys.time() - byrja
+
+plot(rf_train)
+
+saveRDS(rf_train, "rf.rds")
+
+
+# Out of box
+# y <- train_data_nzv$sale_price
+# x <- train_data_nzv %>% select(-sale_price) %>% as.matrix()
+# 
+# n_features <- length(setdiff(names(train_data_nzv), "sale_price"))
+# 
+# rf_oob <- ranger::ranger(sale_price ~ .,
+#                          data = train_data_nzv,
+#                          mtry = floor(n_features / 3),
+#                          respect.unordered.factors = "order")
+# 
+# sqrt(rf_oob$prediction.error)
+
+```
 
