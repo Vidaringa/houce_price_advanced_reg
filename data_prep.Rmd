@@ -219,13 +219,13 @@ lot_impute_test <- bake(lot_impute_rec, new_data = lot_imp_test)
 n_features_lot <- length(setdiff(names(lot_training), "sale_price"))
 
 
-rf_model_zero <- ranger::ranger(sale_price ~ .,
+rf_model_zero <- ranger::ranger(log(sale_price) ~ .,
                                data = lot_zero_train[, -1], # delete the id
                                mtry = floor(n_features_lot / 3),
                                respect.unordered.factors = "order",
                                importance = "impurity")
 
-rf_model_impute <- ranger::ranger(sale_price ~ .,
+rf_model_impute <- ranger::ranger(log(sale_price) ~ .,
                                data = lot_impute_train[, -1],  # delete the id
                                mtry = floor(n_features_lot / 3),
                                respect.unordered.factors = "order",
@@ -236,12 +236,18 @@ pred_lot_zero <- predict(rf_model_zero, data = lot_zero_test)$predictions
 pred_lot_impute <- predict(rf_model_impute, data = lot_impute_test)$predictions
 
 
-RMSE(pred_lot_zero, lot_zero_test$sale_price)
-RMSE(pred_lot_impute, lot_impute_test$sale_price)
+RMSE(pred_lot_zero, log(lot_zero_test$sale_price))
+RMSE(pred_lot_impute, log(lot_impute_test$sale_price))
 
 ```
 
-The difference in terms of RMSE on test set is small. I will impute the missing values using e.g. KNN.    
+The difference in terms of RMSE on test set is small but I'll do what gives lower RMSE which is to impute the variable with zero
+
+```{r}
+all <- all %>% 
+  mutate(lot_frontage = case_when(is.na(lot_frontage) ~ 0,
+                                  TRUE ~ lot_frontage))
+```
 
 
 ### garage_yr_blt
@@ -268,7 +274,7 @@ ames_rf_importance <- recipe(sale_price ~ ., data = train_no_garageyrblt) %>%
 n_features <- length(setdiff(names(train_no_garageyrblt), "sale_price"))
 
 
-rf_model_importance <- ranger::ranger(sale_price ~ .,
+rf_model_importance <- ranger::ranger(log(sale_price) ~ .,
                                       data = ames_rf_importance,
                                       mtry = floor(n_features / 3),
                                       respect.unordered.factors = "order",
@@ -368,13 +374,13 @@ n_features_rec <- length(setdiff(names(train_gar_recode_train), "sale_price"))
 
 
 
-rf_model_omit <- ranger::ranger(sale_price ~ .,
+rf_model_omit <- ranger::ranger(log(sale_price) ~ .,
                                data = ames_rf_omit_train,
                                mtry = floor(n_features_omit / 3),
                                respect.unordered.factors = "order",
                                importance = "impurity")
 
-rf_model_rec <- ranger::ranger(sale_price ~ .,
+rf_model_rec <- ranger::ranger(log(sale_price) ~ .,
                                data = ames_rf_recode_train,
                                mtry = floor(n_features_rec / 3),
                                respect.unordered.factors = "order",
@@ -385,20 +391,21 @@ pred_omit <- predict(rf_model_omit, data = ames_rf_omit_test)$predictions
 pred_rec <- predict(rf_model_rec, data = ames_rf_recode_test)$predictions
 
 
-RMSE(pred_omit, train_gar_omit_test$sale_price)
-RMSE(pred_rec, train_gar_recode_test$sale_price)
+RMSE(pred_omit, log(train_gar_omit_test$sale_price))
+RMSE(pred_rec, log(train_gar_recode_test$sale_price))
 
 
 ```
 
-The difference is small. I will omit the variable form my analysis.
+The difference is small but I'll recode it since it gives me a slightly lower RMSE.
 
 
 ```{r, rem_gar}
 # remove garage
 
 all <- all %>%
-        select(-garage_yr_blt)
+  mutate(garage_yr_blt = case_when(is.na(garage_yr_blt) ~ 0,
+                                   TRUE ~ 1))
 
 ```
 
@@ -550,7 +557,7 @@ trans_func <- function(x) {
         tibble(raw = x,
                bx = bx,
                yj = yj,
-               raw_scale = scale(x)) %>% 
+               raw_scale = log(x)) %>% 
                 pivot_longer(cols = raw:raw_scale,
                              names_to = "key",
                              values_to = "value") %>% 
@@ -560,7 +567,7 @@ trans_func <- function(x) {
 }
 
 
-trans_func(training$bsmt_unf_sf)
+trans_func(training$bsmt_fin_sf1)
 
 ```
 
@@ -569,7 +576,7 @@ The data looks weird for some varialbe, e.g. bmst_unf_sf. I'm not sure about the
 
 ## Variables with lots of zeros
 There are many variables that has lots of zeros.
-According to random forest importance score the only variable with lots of zero that might be of any importance is mas_vnr_area (Masonry veneer area in square feet). All other variables will be converted to dummy variable.  
+According to random forest importance score the only variable with lots of zero that might be of any importance is mas_vnr_area (Masonry veneer area in square feet). All other variables will be recoded as zero-one variables.    
 
 ```{r, zero_variable}
 
@@ -589,7 +596,29 @@ ggplot(zeros_important,
 
 ```
 
-Plotting mas_vnr_area against sale_price shows that higher mas_vnr_area is associated with higher sale_price. I'm not a fan of plot like this since this upward sloping line could easily disappear when accounting for other variables. I will leave this variable as is, i.e. I will not convert to dummy variable.  
+
+```{r, recode_zero}
+
+all <- all %>% 
+  mutate(bsmt_fin_sf2 = case_when(bsmt_fin_sf2 == 0 ~ 0,
+                                  TRUE ~ 1),
+         enclosed_porch = case_when(enclosed_porch == 0 ~ 0,
+                                    TRUE ~ 1),
+         low_qual_fin_sf = case_when(low_qual_fin_sf == 0 ~ 0,
+                                     TRUE ~ 1),
+         misc_val = case_when(misc_val == 0 ~ 0,
+                              TRUE ~ 1),
+         pool_area = case_when(pool_area == 0 ~ 0,
+                               TRUE ~ 1),
+         screen_porch = case_when(screen_porch == 0 ~ 0,
+                                  TRUE ~ 1),
+         x3ssn_porch = case_when(x3ssn_porch == 0 ~ 0,
+                                 TRUE ~ 1))
+
+```
+
+
+Plotting mas_vnr_area against sale_price shows that higher mas_vnr_area is associated with higher sale_price. I'm not a fan of plot like this since this upward sloping line could easily disappear when accounting for other variables. I will leave this variable as is, i.e. I will not recode it.  
 
 ```{r, mas_vnr_area}
 
@@ -602,7 +631,7 @@ ggplot(select(training, c(sale_price, mas_vnr_area)), aes(x = mas_vnr_area, log(
 
 
 # Feature engineering
-Feature engineering refers to everythinig from transforming variables (e.g. using Box Cox), creating dummy variables for categorical variables. One other thing is creating additional variables like interaction effects. I will cover interaction effect in next section.  
+Feature engineering refers to everythinig from transforming variables (e.g. using Box Cox), creating dummy variables for categorical variables. One other thing is creating additional variables like interaction effects. I will cover interaction effect in next section. I don't cover all possible feature engineering techniques. What could add value to the data is creating nonlinear features via basis expansions and splines. I won't do it here but I plan using MARS as part of the models I'll train.  
 
 ## Interaction effects
 There might be interaction between variables that would be useful to include in the model. Algorithms like random forest can detect interactions effects. Since I'm not only relying on algorithms like random forest I have to add interaction effect to the model. I would add all possible interaction effect, total of k*(k-1)/2 for k variables. That would be around 3.000 interaction effects. This is quite a lot so I'll use the variable importance plot from random forest to get an idea of possible interaction effect. Please check out chapter 7 in Kuhn and Johnson regarding detecting interaction effect.  
@@ -619,9 +648,10 @@ After trying out few clustering algorithms on the whole dataset I've decided tha
 
 ```{r, cluster_data_prep}
 
-important <- all %>% 
-        filter(id %in% train_id) %>% 
-        select(overall_qual, gr_liv_area, garage_cars, total_bsmt_sf, x1st_flr_sf)
+important <- all %>%
+  filter(id %in% train_id) %>% 
+  select(overall_qual, gr_liv_area, year_built, total_bsmt_sf, x1st_flr_sf, garage_area)
+
 
 important_scale <- scale(important)
 
@@ -643,7 +673,7 @@ fviz_nbclust(
 ames_kmean <- kmeans(important_scale, 6)
 
 sale_kmeans <- tibble(clusters = ames_kmean$cluster,
-                      sale_price = sale_price)
+                      sale_price = log(sale_price))
 
 ggplot(sale_kmeans,
        aes(x = as.character(clusters),
@@ -695,7 +725,7 @@ The GMM results indicate there  could be nine clusters.
 ames_mc <- Mclust(important, G = 1:25)
 summary(ames_mc)
 
-gmm_sale <- tibble(sale_price = sale_price,
+gmm_sale <- tibble(log(sale_price) = sale_price,
                    clusters = as.character(ames_mc$classification))
 
 ggplot(gmm_sale,
@@ -711,7 +741,7 @@ There seems to be more variability in sale_price between the six clusters accord
 # Here I'll use the flexclust package
 
 test_set <- all %>% filter(id %in% test_id) %>%
-        select(overall_qual, gr_liv_area, garage_cars, total_bsmt_sf, x1st_flr_sf)
+        select(overall_qual, gr_liv_area, year_built, total_bsmt_sf, x1st_flr_sf, garage_area)
 
 test_set <- scale(test_set)
 
@@ -738,6 +768,7 @@ ames_train_rf_imp$sale_price <- sale_price
 
 ames_train_rf_im <- recipe(sale_price ~ ., data = ames_train_rf_imp) %>% 
         step_knnimpute(all_predictors(), neighbors = 5) %>% 
+  step_log(all_outcomes()) %>% 
         prep(ames_train_rf_imp) %>% 
         bake(ames_train_rf_imp)
 
@@ -767,9 +798,11 @@ ames_rf_importance <- ames_rf_importance %>%
   arrange(desc(importance)) %>% 
   mutate(used_in_kmeans = case_when(variable %in% c("overall_qual",
                                                     "gr_liv_area",
+                                                    "year_built",
                                                     "garage_cars",
                                                     "total_bsmt_sf",
-                                                    "x1st_flr_sf") ~ "used_in",
+                                                    "x1st_flr_sf",
+                                                    "garage_area") ~ "used_in",
                                     TRUE ~ "not_used"))
   
 

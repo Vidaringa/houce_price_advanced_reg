@@ -17,14 +17,162 @@ library(tidymodels)
 library(caret)
 library(caretEnsemble)
 
+
 library(doParallel)
 library(parallel)
 
-trainin <- read_csv("final_")
+df_training <- read_csv("final_trian.csv")
+df_test <- read_csv("final_test.csv")
+
+sale_price <- df_training$sale_price
+train_id <- df_training$id
+test_id <- df_test$id
+
+df_training <- df_training %>% select(-sale_price)
+# df_test <- df_test %>% select(-id)
+
+# Breyti nokkrum factorum í ordered factor
+
+```
+
+
+# Data preparation
+Some of the factor variables are ordered factors. Since write_csv coerce factors to characters I have to fix it here. Some of the variables are categorical variables stored as integers. I will also address that issue here.
+
+Categorical variables that I'll convert to ordered factor:  
+* exter_qual
+* exter_cond
+* bsmt_qual
+* bsmt_cond
+* heating_qc
+* kitchen_qual
+* fireplace_qu
+* garage_qual
+* garage_cond
+* pool_qc  
+
+Some of the variables like pool_qc has categories like Good, Average, Fair and NA (not a number) when there is no swimming pool. It's not obvious where NA should be i.e. below Fair or above Excellent. I've decided that it should be at the bottom, i.e. below average. One other remedy to this is to simply not code it as ordered factor. But then you loose information. Strictly I should test both and check which one will yield higher accuracy.  
+
+
+
+```{r}
+ames_all <- bind_rows(df_training, df_test)
+
+ames_all$exter_qual <- factor(ames_all$exter_qual, levels = c("Fa", "TA","Gd", "Ex"), ordered = TRUE)
+ames_all$exter_cond <- factor(ames_all$exter_cond, levels = c("Po", "Fa", "TA" ,"Gd", "Ex"), ordered = TRUE)
+ames_all$bsmt_qual <- factor(ames_all$bsmt_qual, levels = c("no_basement", "Fa", "TA", "Gd", "Ex"), ordered = TRUE)
+ames_all$bsmt_cond <- factor(ames_all$bsmt_cond, levels = c("no_basement", "Po", "Fa", "TA", "Gd", "Ex"), ordered = TRUE)
+ames_all$heating_qc <- factor(ames_all$heating_qc, levels = c("Po", "Fa", "TA", "Gd", "Ex"), ordered = TRUE)
+ames_all$kitchen_qual <- factor(ames_all$kitchen_qual, levels = c("Fa", "TA", "Gd", "Ex"), ordered = TRUE)
+ames_all$fireplace_qu <- factor(ames_all$fireplace_qu, levels = c("no_fireplace", "Po", "Fa", "TA", "Gd", "Ex"), ordered = TRUE)
+ames_all$garage_qual <- factor(ames_all$garage_qual, levels = c("no_garage", "Po", "Fa", "TA", "Gd", "Ex"), ordered = TRUE)
+ames_all$garage_cond <- factor(ames_all$garage_cond, levels = c("no_garage", "Po", "Fa", "TA", "Gd", "Ex"), ordered = TRUE)
+ames_all$pool_qc <- factor(ames_all$pool_qc, levels = c("no_pool", "Fa", "TA", "Gd", "Ex"), ordered = TRUE)
+
+# Verð að breyta character í factor
+ames_all <- ames_all %>% 
+        mutate_if(is.character, as.factor)
+
+# Bý til aftur train og test set
+ames_training <- ames_all %>% filter(id %in% df_training$id) %>% select(-id)
+# ames_training$sale_price <- df_training$sale_price
+ames_test <- ames_all %>% filter(id %in% df_test$id) %>% select(-id)
+
+# Breytur sem ég mun breyta úr integer í factor (unordered)
+int_var <- c("bedroom_abv_gr", "bsmt_full_bath", "bsmt_half_bath", "fireplaces", "full_bath", "garage_cars",
+             "half_bath", "kitchen_abv_gr", "mo_sold", "tot_rms_abv_grd", "kmeans", "ms_sub_class", "yr_sold")
+
+
+to_dummy <- c("ms_zoning", "street", "alley", "lot_shape", "land_contour", "utilities", "lot_config",
+              "land_slope", "neighborhood", "condition1", "condition2", "bldg_type", "house_style", "roof_style",
+              "roof_matl", "exterior1st", "exterior2nd", "mas_vnr_type", "exter_qual", "exter_cond", "foundation",
+              "bsmt_qual", "bsmt_cond", "bsmt_exposure", "bsmt_fin_type1", "bsmt_fin_type2", "heating", "heating_qc",
+              "central_air", "electrical", "kitchen_qual", "overall_qual", "overall_cond", "functional", "fireplace_qu",
+              "garage_type", "garage_finish", "garage_qual", "garage_cond", "paved_drive", "pool_qc", "fence", "misc_feature",
+              "sale_type", "sale_condition")
+
+yeo <- c("total_bsmt_sf", "x1st_flr_sf", "lot_area", "bsmt_fin_sf1", "mas_vnr_area", "bsmt_unf_sf",
+         "x2nd_flr_sf", "gr_liv_area", "garage_area", "wood_deck_sf", "open_porch_sf")
+
+to_scale <- ames_all %>% names() %>% as_tibble() %>% filter(!(value %in% to_dummy), !(value %in% int_var), value != "id")
+to_scale <- to_scale$value
+
 ```
 
 
 # Setup
+In data_prep document I analyzed the data visually and by using random forest. I found few categorical variable that I'll have to lump, other that I will change to dummy variables. Missing values will be imputed using KNN.
+
+
+## Recipe
+```{r}
+
+ames_recipe<- recipe(~., data = ames_training) %>% 
+        
+        # impute
+        step_knnimpute(all_predictors()) %>% 
+        
+        # yeo johnon
+        step_YeoJohnson(one_of(yeo)) %>% 
+        
+        # integer values to factor
+        step_num2factor(one_of(int_var)) %>% 
+        # ordred factor
+        step_num2factor(starts_with("overall_"), ordered = TRUE) %>% 
+        
+        # lump variables
+        step_other(neighborhood, threshold = 0.03) %>% 
+        step_other(bsmt_qual, threshold = 0.05) %>% 
+        
+        # dummy
+        step_dummy(one_of(int_var)) %>% 
+        step_dummy(one_of(to_dummy)) %>% 
+        
+        # Interaction
+        step_interact(terms = ~ starts_with("overall_"):starts_with("neighborhood_")) %>%
+        step_interact(terms = ~ starts_with("overall_"):gr_liv_area) %>% 
+        step_interact(terms = ~ starts_with("overall_"):starts_with("exter_qual_")) %>% 
+        step_interact(terms = ~ starts_with("neighborhood_"):gr_liv_area) %>% 
+        step_interact(terms = ~ starts_with("neighborhood_"):starts_with("exter_qual_")) %>% 
+        step_interact(terms = ~ gr_liv_area:starts_with("exter_qual_")) %>% 
+        step_center(one_of(to_scale)) %>% 
+        step_scale(one_of(to_scale))
+
+ames_recipe_nzv <- ames_recipe %>% 
+        step_nzv(all_predictors())
+
+```
+
+
+
+```{r, prep}
+
+trained_rec <- prep(ames_recipe, training = ames_training)
+trained_rec_nzv <- prep(ames_recipe_nzv, training = ames_training)
+
+# Full data
+train_data <- bake(trained_rec, new_data = ames_training)
+test_data <- bake(trained_rec, new_data = ames_test)
+
+# add id and sale_price
+train_data$id <- train_id
+train_data$sale_price <- sale_price
+test_data$id <- test_id
+
+
+# without nzv
+train_data_nzv <- bake(trained_rec_nzv, new_data = ames_training)
+test_data_nzv <- bake(trained_rec_nzv, new_data = ames_test)
+
+# add sale_price
+train_data_nzv$sale_price <- sale_price
+
+```
+
+
+
+# Training
+I plan to train several models and then stack them. I'm not sure if 
 
 ```{r, model_setup}
 
@@ -32,25 +180,29 @@ ctrl <- trainControl(method = "cv",
                      number = 10,
                      allowParallel = TRUE)
 
-
 ```
 
-## Recipe
-```{r}
-
-ames_recipe <- recipe(sale_price ~ .,
-                      data = )
-
-```
-
-
-# Training
 
 ## Random forest
 
 ```{r, rf}
 
-rf_train <- train()
+no_cores <- detectCores() - 1  
+registerDoParallel(cores=no_cores)  
+cl <- makeCluster(no_cores)
+
+byrja <- Sys.time()
+
+rf_train <- train(sale_price ~ .,
+                  data = train_data_nzv,
+                  method = "xgbTree",
+                  tuneLength = 10,
+                  trControl = ctrl)
+
+stopCluster(cl)
+
+Sys.time() - byrja
 
 ```
+
 
