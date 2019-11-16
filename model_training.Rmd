@@ -16,7 +16,7 @@ library(tidyverse)
 library(tidymodels)
 library(caret)
 library(caretEnsemble)
-
+library(bartMachine)
 
 
 library(doParallel)
@@ -57,6 +57,7 @@ Some of the variables like pool_qc has categories like Good, Average, Fair and N
 
 
 ```{r}
+
 ames_all <- bind_rows(df_training, df_test)
 
 ames_all$exter_qual <- factor(ames_all$exter_qual, levels = c("Fa", "TA","Gd", "Ex"), ordered = TRUE)
@@ -102,7 +103,6 @@ yeo <- c("total_bsmt_sf", "x1st_flr_sf", "lot_area", "bsmt_fin_sf1", "mas_vnr_ar
 to_scale <- ames_all %>% names() %>% as_tibble() %>% filter(!(value %in% to_dummy), !(value %in% int_var), value != "id")
 to_scale <- to_scale$value
 
-to_interact_neig <- 
 
 ```
 
@@ -193,6 +193,12 @@ ctrl <- trainControl(method = "cv",
 ctrl_2 <- trainControl(method = "repeatedcv",
                        number = 10,
                        repeats = 3)
+
+ctrl_3 <- trainControl(method = "cv",
+                       number = 10,
+                       allowParallel = TRUE,
+                       search = "random")
+
 ```
 
 
@@ -203,9 +209,10 @@ ctrl_2 <- trainControl(method = "repeatedcv",
 # y <- train_data_nzv$sale_price
 # x <- train_data_nzv %>% select(-sale_price)
 
-no_cores <- detectCores() - 4  
-registerDoParallel(cores=no_cores)  
+no_cores <- detectCores() - 2 
 cl <- makeCluster(no_cores)
+registerDoParallel(cl)
+
 
 byrja <- Sys.time()
 
@@ -215,13 +222,9 @@ enet_train <- train(sale_price ~ .,
                     tuneLength = 20,
                     trControl = ctrl_2)
 
-stopCluster(cl)
-
 Sys.time() - byrja
 
 saveRDS(enet_train, "glmnet.rds")
-
-plot(enet_train)
 
 ```
 
@@ -230,10 +233,6 @@ plot(enet_train)
 ## MARS
 
 ```{r, mars}
-
-no_cores <- detectCores() - 4
-registerDoParallel(cores=no_cores)
-cl <- makeCluster(no_cores)
 
 byrja <- Sys.time()
 
@@ -244,11 +243,8 @@ mars_train <- train(sale_price ~ .,
                     metric = "RMSE",
                     trControl = ctrl)
 
-stopCluster(cl)
 
 Sys.time() - byrja
-
-plot(mars_train)
 
 saveRDS(mars_train, "mars.rds")
 
@@ -260,10 +256,6 @@ saveRDS(mars_train, "mars.rds")
 
 ```{r, knn}
 
-no_cores <- detectCores() - 4
-registerDoParallel(cores=no_cores)
-cl <- makeCluster(no_cores)
-
 byrja <- Sys.time()
 
 knn_train <- train(sale_price ~ .,
@@ -273,55 +265,154 @@ knn_train <- train(sale_price ~ .,
                     metric = "RMSE",
                     trControl = ctrl_2)
 
-stopCluster(cl)
-
 Sys.time() - byrja
-
-plot(knn_train)
 
 saveRDS(knn_train, "knn.rds")
 
 ```
 
 
-## Random Forest
+## Cubist
 
-```{r, rf}
+```{r, cubist}
 
-no_cores <- detectCores() - 3
-registerDoParallel(cores=no_cores)
-cl <- makeCluster(no_cores)
+cub_grid <- expand.grid(committees = c(1, seq(10, 100, 10)),
+                        neighbors = seq(0, 9, 1))
 
 byrja <- Sys.time()
 
-rf_train <- train(sale_price ~ .,
+cubist_train <- train(sale_price ~ .,
                     data = train_data_nzv,
-                    method = "ranger",
-                    tuneLength = 10,
+                    method = "cubist",
+                    tuneGrid = cub_grid,
                     metric = "RMSE",
                     trControl = ctrl)
 
-stopCluster(cl)
+Sys.time() - byrja
+
+
+saveRDS(cubist_train, "cubist.rds")
+
+
+```
+
+## SVM
+
+```{r}
+
+byrja <- Sys.time()
+
+svm_train <- train(sale_price ~ .,
+                    data = train_data_nzv,
+                    method = "svmRadial",
+                    tuneLength = 100,
+                    metric = "RMSE",
+                    trControl = ctrl_3)
+
 
 Sys.time() - byrja
 
-plot(rf_train)
+saveRDS(svm_train, "svm_train")
 
-saveRDS(rf_train, "rf.rds")
+stopCluster(cl)
+
+```
+
+<!-- ## FFNN -->
+
+<!-- ```{r} -->
+
+<!-- ctrl_3 <- trainControl(method = "cv", -->
+<!--                      number = 10, -->
+<!--                      allowParallel = TRUE) -->
+
+<!-- nnetGrid <- expand.grid(decay = seq(0, 0.01, .001), size = c(1, seq(10, 100, 10)), bag = FALSE) -->
+
+<!-- byrja <- Sys.time() -->
+
+<!-- nnet_train <- train(sale_price ~ ., -->
+<!--                     data = train_data_nzv, -->
+<!--                     method = "avNNet", -->
+<!--                     tuneGrid = nnetGrid, -->
+<!--                     metric = "RMSE", -->
+<!--                     trControl = ctrl_3, -->
+<!--                     linout =  TRUE, -->
+<!--                     maxit = 500, -->
+<!--                     trace = FALSE, -->
+<!--                     MaxNWts = 10 * (ncol(train_data_nzv) + 1) + 10 + 1) -->
+
+<!-- Sys.time() - byrja -->
+
+<!-- plot(nnet_train) -->
+
+<!-- ``` -->
 
 
-# Out of box
-# y <- train_data_nzv$sale_price
-# x <- train_data_nzv %>% select(-sale_price) %>% as.matrix()
+
+## XGBoost
+Prófa fyrst search = random með tunelength = 1000 (vissuelga of mikið, hefði verið nóg að nota 100). Með þessu fæ ég góða tilfinning fyrir því hvar ég eigi að focusera 
+```{r}
+
+# byrja <- Sys.time()
 # 
-# n_features <- length(setdiff(names(train_data_nzv), "sale_price"))
+# no_cores <- detectCores() - 1
+# registerDoParallel(cores=no_cores)
+# cl <- makeCluster(no_cores)
 # 
-# rf_oob <- ranger::ranger(sale_price ~ .,
-#                          data = train_data_nzv,
-#                          mtry = floor(n_features / 3),
-#                          respect.unordered.factors = "order")
+# xgb_train <- train(sale_price ~ .,
+#                     data = train_data_nzv,
+#                     method = "xgbTree",
+#                     tuneLength = 3000,
+#                     metric = "RMSE",
+#                     trControl = ctrl_3)
 # 
-# sqrt(rf_oob$prediction.error)
+# 
+# Sys.time() - byrja
+# 
+# stopCluster(cl)
+# saveRDS(xgb_train, "xgb_random_3000.rds")
 
+
+xgb_train <- readRDS("xgb_random_3000.rds")
+
+```
+
+## Bartmachine
+
+```{r}
+
+```
+
+
+# RMSE of different models
+
+```{r}
+df_rmse <- tibble(enet = min(enet_train$results[,3]),
+                  cubist = min(cubist_train$results[,3]),
+                  mars = min(min(mars_train$results[,3])),
+                  knn = min(knn_train$results[,2]),
+                  svm = min(svm_train$results[,3]),
+                  xgb = min(xgb_train$results[,8]))
+
+
+```
+
+
+# Stacking
+Here I'll use CaretEnsemble to combine several models
+
+```{r}
+
+no_cores <- detectCores() - 1
+cl <- makeCluster(no_cores)
+registerDoParallel(cl)
+
+my_control <- trainControl(method = "cv",
+                           number = 10,
+                           allowParallel = TRUE)
+
+x_train <- 
+
+model_list <- caretList()
 ```
 
