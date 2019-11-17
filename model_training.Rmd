@@ -16,7 +16,7 @@ library(tidyverse)
 library(tidymodels)
 library(caret)
 library(caretEnsemble)
-library(bartMachine)
+# library(bartMachine)
 
 
 library(doParallel)
@@ -145,7 +145,8 @@ ames_recipe<- recipe(~., data = ames_training) %>%
                               starts_with("neighborhood_"):starts_with("exter_qual_")) %>% 
         step_interact(terms = ~ gr_liv_area:starts_with("exter_qual_")) %>% 
         step_center(one_of(to_scale)) %>% 
-        step_scale(one_of(to_scale))
+        step_scale(one_of(to_scale)) %>% 
+        step_knnimpute(all_predictors())
 
 ames_recipe_nzv <- ames_recipe %>% 
         step_zv(all_predictors()) %>% 
@@ -176,6 +177,7 @@ test_data_nzv <- bake(trained_rec_nzv, new_data = ames_test)
 
 # add sale_price
 train_data_nzv$sale_price <- sale_price
+
 
 ```
 
@@ -208,10 +210,10 @@ ctrl_3 <- trainControl(method = "cv",
 
 # y <- train_data_nzv$sale_price
 # x <- train_data_nzv %>% select(-sale_price)
-
-no_cores <- detectCores() - 2 
-cl <- makeCluster(no_cores)
-registerDoParallel(cl)
+# 
+# no_cores <- detectCores() - 2
+# cl <- makeCluster(no_cores)
+# registerDoParallel(cl)
 
 
 byrja <- Sys.time()
@@ -220,11 +222,14 @@ enet_train <- train(sale_price ~ .,
                     data = train_data_nzv,
                     method = "glmnet",
                     tuneLength = 20,
-                    trControl = ctrl_2)
+                    metric = Metrics::rmsle(),
+                    trControl = ctrl)
 
 Sys.time() - byrja
 
 saveRDS(enet_train, "glmnet.rds")
+
+enet_train <- readRDS("glmnet.rds")
 
 ```
 
@@ -233,21 +238,22 @@ saveRDS(enet_train, "glmnet.rds")
 ## MARS
 
 ```{r, mars}
+# 
+# byrja <- Sys.time()
+# 
+# mars_train <- train(sale_price ~ .,
+#                     data = train_data_nzv,
+#                     method = "earth",
+#                     tuneLength = 10,
+#                     metric = "RMSE",
+#                     trControl = ctrl)
+# 
+# 
+# Sys.time() - byrja
+# 
+# saveRDS(mars_train, "mars.rds")
 
-byrja <- Sys.time()
-
-mars_train <- train(sale_price ~ .,
-                    data = train_data_nzv,
-                    method = "earth",
-                    tuneLength = 50,
-                    metric = "RMSE",
-                    trControl = ctrl)
-
-
-Sys.time() - byrja
-
-saveRDS(mars_train, "mars.rds")
-
+mars_train <- readRDS("mars.rds")
 
 ```
 
@@ -255,19 +261,44 @@ saveRDS(mars_train, "mars.rds")
 ## KNN
 
 ```{r, knn}
+# 
+# byrja <- Sys.time()
+# 
+# knn_train <- train(sale_price ~ .,
+#                     data = train_data_nzv,
+#                     method = "knn",
+#                     tuneLength = 30,
+#                     metric = "RMSE",
+#                     trControl = ctrl_2)
+# 
+# Sys.time() - byrja
+# 
+# saveRDS(knn_train, "knn.rds")
 
-byrja <- Sys.time()
+knn_train <- readRDS("knn.rds")
 
-knn_train <- train(sale_price ~ .,
-                    data = train_data_nzv,
-                    method = "knn",
-                    tuneLength = 30,
-                    metric = "RMSE",
-                    trControl = ctrl_2)
+```
 
-Sys.time() - byrja
+## KKNN
 
-saveRDS(knn_train, "knn.rds")
+```{r}
+
+# no_cores <- detectCores() - 2
+# cl <- makeCluster(no_cores)
+# registerDoParallel(cl)
+# 
+# byrja <- Sys.time()
+# 
+# kknn_train <- train(sale_price ~ .,
+#                     data = train_data_nzv,
+#                     method = "kknn",
+#                     tuneLength = 50,
+#                     metric = "RMSE",
+#                     trControl = ctrl_3)
+# 
+# Sys.time() - byrja
+# 
+# saveRDS(knn_train, "kknn.rds")
 
 ```
 
@@ -276,23 +307,24 @@ saveRDS(knn_train, "knn.rds")
 
 ```{r, cubist}
 
-cub_grid <- expand.grid(committees = c(1, seq(10, 100, 10)),
-                        neighbors = seq(0, 9, 1))
+# cub_grid <- expand.grid(committees = c(1, seq(10, 100, 10)),
+#                         neighbors = seq(0, 9, 1))
+# 
+# byrja <- Sys.time()
+# 
+# cubist_train <- train(sale_price ~ .,
+#                     data = train_data_nzv,
+#                     method = "cubist",
+#                     tuneGrid = cub_grid,
+#                     metric = "RMSE",
+#                     trControl = ctrl)
+# 
+# Sys.time() - byrja
+# 
+# 
+# saveRDS(cubist_train, "cubist.rds")
 
-byrja <- Sys.time()
-
-cubist_train <- train(sale_price ~ .,
-                    data = train_data_nzv,
-                    method = "cubist",
-                    tuneGrid = cub_grid,
-                    metric = "RMSE",
-                    trControl = ctrl)
-
-Sys.time() - byrja
-
-
-saveRDS(cubist_train, "cubist.rds")
-
+cubist_train <- readRDS("cubist.rds")
 
 ```
 
@@ -300,57 +332,30 @@ saveRDS(cubist_train, "cubist.rds")
 
 ```{r}
 
-byrja <- Sys.time()
+# byrja <- Sys.time()
+# 
+# svm_train <- train(sale_price ~ .,
+#                     data = train_data_nzv,
+#                     method = "svmRadial",
+#                     tuneLength = 100,
+#                     metric = "RMSE",
+#                     trControl = ctrl_3)
+# 
+# 
+# Sys.time() - byrja
+# 
+# saveRDS(svm_train, "svm_train.rds")
+# 
+# stopCluster(cl)
 
-svm_train <- train(sale_price ~ .,
-                    data = train_data_nzv,
-                    method = "svmRadial",
-                    tuneLength = 100,
-                    metric = "RMSE",
-                    trControl = ctrl_3)
-
-
-Sys.time() - byrja
-
-saveRDS(svm_train, "svm_train")
-
-stopCluster(cl)
+svm_train <- readRDS("svm_train")
 
 ```
-
-<!-- ## FFNN -->
-
-<!-- ```{r} -->
-
-<!-- ctrl_3 <- trainControl(method = "cv", -->
-<!--                      number = 10, -->
-<!--                      allowParallel = TRUE) -->
-
-<!-- nnetGrid <- expand.grid(decay = seq(0, 0.01, .001), size = c(1, seq(10, 100, 10)), bag = FALSE) -->
-
-<!-- byrja <- Sys.time() -->
-
-<!-- nnet_train <- train(sale_price ~ ., -->
-<!--                     data = train_data_nzv, -->
-<!--                     method = "avNNet", -->
-<!--                     tuneGrid = nnetGrid, -->
-<!--                     metric = "RMSE", -->
-<!--                     trControl = ctrl_3, -->
-<!--                     linout =  TRUE, -->
-<!--                     maxit = 500, -->
-<!--                     trace = FALSE, -->
-<!--                     MaxNWts = 10 * (ncol(train_data_nzv) + 1) + 10 + 1) -->
-
-<!-- Sys.time() - byrja -->
-
-<!-- plot(nnet_train) -->
-
-<!-- ``` -->
 
 
 
 ## XGBoost
-Prófa fyrst search = random með tunelength = 1000 (vissuelga of mikið, hefði verið nóg að nota 100). Með þessu fæ ég góða tilfinning fyrir því hvar ég eigi að focusera 
+Prófa fyrst search = random með tunelength = 3000 (vissuelga of mikið, hefði verið nóg að nota 100). Með þessu fæ ég góða tilfinning fyrir því hvar ég eigi að focusera 
 ```{r}
 
 # byrja <- Sys.time()
@@ -380,7 +385,20 @@ xgb_train <- readRDS("xgb_random_3000.rds")
 ## Bartmachine
 
 ```{r}
+# x_train <- train_data_nzv %>% select(-sale_price) %>% as.data.frame()
+# y_train <- train_data_nzv$sale_price
+# 
+# options(java.parameters = "-Xmx20000m")
+# set_bart_machine_num_cores(3)
+# 
+# bart_machine <- bartMachine(X = x_train, y = y_train)
 
+# bart <- train(sale_price ~ .,
+#               data = train_data_nzv,
+#               method = "bartMachine",
+#               tuneLength = 5,
+#               metric = "RMSE",
+#               trControl = trainControl(method = "cv", number = 5))
 ```
 
 
@@ -401,7 +419,7 @@ df_rmse <- tibble(enet = min(enet_train$results[,3]),
 # Stacking
 Here I'll use CaretEnsemble to combine several models
 
-```{r}
+```{r, model_list}
 
 no_cores <- detectCores() - 1
 cl <- makeCluster(no_cores)
@@ -409,10 +427,123 @@ registerDoParallel(cl)
 
 my_control <- trainControl(method = "cv",
                            number = 10,
-                           allowParallel = TRUE)
+                           allowParallel = TRUE,
+                           savePredictions = "final")
 
-x_train <- 
+x_train <- train_data_nzv %>% select(-sale_price) %>% as.data.frame()
+y_train <- train_data_nzv$sale_price
 
-model_list <- caretList()
+
+model_list <- caretList(x = x_train,
+                        y = y_train,
+                        trControl = my_control,
+                        continue_on_fail = FALSE,
+                        # methodList = c("glmnet", "cubist", "earth",
+                        #                "knn", "svmRadial", "xgbTree"),
+                        tuneList = list(
+                                glmnet = caretModelSpec(method = "glmnet", tuneGrid = data.frame(.alpha = 0.1, .lambda = 1511.753)),
+                                cubist = caretModelSpec(method = "cubist", tuneGrid = data.frame(committees = 100, neighbors = 3)),
+                                earth = caretModelSpec(method = "earth", tuneGrid = data.frame(nprune = 14, degree = 1)),
+                                knn = caretModelSpec(method = "knn", tuneGrid = data.frame(k = 5)),
+                                svm = caretModelSpec(method = "svmRadial", tuneGrid = data.frame(sigma = 0.000809491, C = 19.50694)),
+                                xgb = caretModelSpec(method = "xgbTree", tuneGrid = data.frame(nrounds = 544, max_depth = 4,
+                                                                                               eta = 0.06978232, gamma = 5.719467, 
+                                                                                               colsample_bytree = 0.6949411, 
+                                                                                               min_child_weight = 2, subsample = 0.7168163))
+                        ))
+
+
+# model_list <- list(glmnet = model_list$glmnet,
+#                    cubist = model_list$cubist,
+#                    mars = model_list$earth,
+#                    knn = model_list$knn,
+#                    svm = model_list$svm,
+#                    xgb = model_list$xgb)
+```
+
+
+```{r, model_results}
+
+model_results <- data.frame(
+ glmnet = min(model_list$glmnet$results$RMSE),
+ cubist = min(model_list$cubist$results$RMSE),
+ mars = min(model_list$mars$results$RMSE),
+ knn = min(model_list$knn$results$RMSE),
+ svm = min(model_list$svm$results$RMSE),
+ xgb = min(model_list$xgb$results$RMSE)
+ )
+
+resamples <- resamples(model_list)
+
+dotplot(resamples, metric = "RMSE")
+
+modelCor(resamples)
+```
+
+
+```{r, ensemble}
+
+ensemble_1 <- caretEnsemble(
+        model_list,
+        metric = "RMSE",
+        trControl = my_control
+)
+
+summary(ensemble_1)
+
+ensemble_2 <- caretStack(model_list,
+                         method = "glm",
+                         metric = "RMSE")
+
+print(ensemble_2)
+
+# 
+# ensemble_3 <- caretStack(model_list,
+#                          method = "gbm",
+#                          metric = "RMSE",
+#                          verbose = FALSE,
+#                          tuneLength = 10)
+
+
+```
+
+
+```{r, prediction}
+
+final_pred <- predict(ensemble_1, newdata = test_data_nzv)
+
+
+final_prediction <- tibble(ID = test_id,
+                           SalePrice = as.numeric(final_pred))
+
+write_csv(final_prediction, "final_prediction.csv")
+
+```
+
+
+
+# XGboost raw
+
+```{r}
+
+no_cores <- detectCores() - 1
+registerDoParallel(cores=no_cores)
+cl <- makeCluster(no_cores)
+
+byrja <- Sys.time()
+
+xgb_train <- train(sale_price ~ .,
+                    data = df_training,
+                    method = "xgbTree",
+                    tuneLength = 10,
+                    metric = "RMSE",
+                    trControl = ctrl)
+
+
+Sys.time() - byrja
+
+stopCluster(cl)
+
+
 ```
 
